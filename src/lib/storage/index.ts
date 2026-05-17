@@ -5,5 +5,6 @@ export type StoredFile = {
 
 export type StorageDriver = {
   saveImage(args: { bytes: Uint8Array; filename: string; folder: string }): Promise<StoredFile>;
+  saveFile(args: { bytes: Uint8Array; filename: string; folder: string }): Promise<StoredFile>;
 };
 

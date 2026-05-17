@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Container } from "@/components/layout/container";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { getSessionUser } from "@/lib/auth/session";
 
-export default function Home() {
+export default async function Home() {
+  const user = await getSessionUser();
   return (
     <Container className="py-10 sm:py-14">
       <div className="grid gap-6 lg:grid-cols-2 lg:gap-10 items-start">
@@ -19,11 +21,13 @@ export default function Home() {
             <Link href="/problems">
               <Button size="lg">Browse problems</Button>
             </Link>
-            <Link href="/register">
-              <Button size="lg" variant="secondary">
-                Create account
-              </Button>
-            </Link>
+            {!user ? (
+              <Link href="/register">
+                <Button size="lg" variant="secondary">
+                  Create account
+                </Button>
+              </Link>
+            ) : null}
           </div>
           <p className="text-sm text-zinc-500">
             Tip: On mobile, upload directly from gallery or camera.

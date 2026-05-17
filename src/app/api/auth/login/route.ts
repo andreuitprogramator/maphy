@@ -25,7 +25,15 @@ export async function POST(req: Request) {
 
   const token = signAccessToken({ sub: user.id, username: user.username });
   const res = NextResponse.json(
-    { id: user.id, username: user.username, email: user.email, bio: user.bio, imageUrl: user.imageUrl },
+    {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      bio: user.bio,
+      avatarUrl: user.avatarUrl,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    },
     { status: 200 },
   );
   res.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -37,4 +45,3 @@ export async function POST(req: Request) {
   });
   return res;
 }
-

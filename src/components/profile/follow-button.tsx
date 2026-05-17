@@ -1,19 +1,28 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 export function FollowButton({
   username,
   initialFollowing,
   disabled,
+  onFollowChange,
 }: {
   username: string;
   initialFollowing: boolean;
   disabled?: boolean;
+  /** Fires after a successful follow/unfollow (server counts included when available). */
+  onFollowChange?: (next: { following: boolean; followersCount?: number }) => void;
 }) {
+  const router = useRouter();
   const [following, setFollowing] = React.useState(initialFollowing);
   const [pending, setPending] = React.useState(false);
+
+  React.useEffect(() => {
+    setFollowing(initialFollowing);
+  }, [initialFollowing]);
 
   async function toggle() {
     setPending(true);
@@ -25,7 +34,24 @@ export function FollowButton({
           body: JSON.stringify({ username }),
         });
     setPending(false);
-    if (res.ok) setFollowing(!following);
+    if (!res.ok) return;
+
+    let followersCount: number | undefined;
+    try {
+      const data = (await res.json()) as { followersCount?: number };
+      if (typeof data.followersCount === "number") followersCount = data.followersCount;
+    } catch {
+      /* ignore */
+    }
+
+    const nextFollowing = !following;
+    setFollowing(nextFollowing);
+    router.refresh();
+    onFollowChange?.(
+      typeof followersCount === "number"
+        ? { following: nextFollowing, followersCount }
+        : { following: nextFollowing },
+    );
   }
 
   return (
@@ -36,8 +62,7 @@ export function FollowButton({
       disabled={disabled || pending}
       onClick={toggle}
     >
-      {pending ? "..." : following ? "Following" : "Follow"}
+      {pending ? "…" : following ? "Following" : "Follow"}
     </Button>
   );
 }
-

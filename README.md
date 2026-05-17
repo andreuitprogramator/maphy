@@ -45,6 +45,7 @@ Open `http://localhost:3000`.
 ## Notes
 
 - **JWT session cookie**: httpOnly cookie `maphy_session` (30 days).
+- **AI grading**: set `OPENAI_API_KEY` in `.env`; default model is `gpt-5-nano` (`OPENAI_GRADING_MODEL` override supported).
 - **Uploads**: stored in `public/uploads/...` (easy to replace with S3/R2 later via `src/lib/storage/*`).
 - **Rate limit**: submissions limited to 5 / 15 minutes per user (in-memory dev limiter in `src/lib/rate-limit.ts`).
 

@@ -6,14 +6,14 @@ export async function GET(_: Request, ctx: { params: Promise<{ problemId: string
   if (!problemId) return jsonError(400, "Missing problemId");
 
   const leaderboard = await prisma.submission.findMany({
-    where: { problemId },
-    orderBy: [{ score: "desc" }, { createdAt: "asc" }],
+    where: { problemId, status: "GRADED" },
+    orderBy: [{ aiScore: "desc" }, { createdAt: "asc" }],
     take: 20,
     select: {
       id: true,
-      score: true,
+      aiScore: true,
       createdAt: true,
-      user: { select: { id: true, username: true, imageUrl: true } },
+      user: { select: { id: true, username: true, avatarUrl: true } },
     },
   });
 

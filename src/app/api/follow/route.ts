@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { requireUser } from "@/lib/auth/require-user";
 import { jsonError, jsonOk } from "@/lib/api/response";
+import { notifyUserFollowed } from "@/lib/notifications/service";
 
 const BodySchema = z.object({ username: z.string().min(1) });
 
@@ -13,17 +14,30 @@ export async function POST(req: Request) {
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) return jsonError(400, "Invalid input");
 
-  const target = await prisma.user.findUnique({ where: { username: parsed.data.username }, select: { id: true } });
+  const target = await prisma.user.findUnique({
+    where: { username: parsed.data.username },
+    select: { id: true },
+  });
   if (!target) return jsonError(404, "User not found");
   if (target.id === me.id) return jsonError(400, "You cannot follow yourself");
 
-  await prisma.follow.upsert({
+  const existing = await prisma.follow.findUnique({
     where: { followerId_followingId: { followerId: me.id, followingId: target.id } },
-    create: { followerId: me.id, followingId: target.id },
-    update: {},
+    select: { followerId: true },
   });
+  if (!existing) {
+    await prisma.follow.create({
+      data: { followerId: me.id, followingId: target.id },
+    });
+    await notifyUserFollowed({
+      followerId: me.id,
+      followerUsername: me.username,
+      targetUserId: target.id,
+    });
+  }
 
-  return jsonOk({ ok: true });
+  const followersCount = await prisma.follow.count({ where: { followingId: target.id } });
+  return jsonOk({ ok: true, followersCount });
 }
 
 export async function DELETE(req: Request) {
@@ -41,6 +55,7 @@ export async function DELETE(req: Request) {
     .delete({ where: { followerId_followingId: { followerId: me.id, followingId: target.id } } })
     .catch(() => null);
 
-  return jsonOk({ ok: true });
+  const followersCount = await prisma.follow.count({ where: { followingId: target.id } });
+  return jsonOk({ ok: true, followersCount });
 }
 

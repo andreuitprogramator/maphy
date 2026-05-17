@@ -5,7 +5,20 @@ export async function GET(_: Request, ctx: { params: Promise<{ username: string 
   const { username } = await ctx.params;
   const user = await prisma.user.findUnique({
     where: { username },
-    select: { id: true, username: true, bio: true, imageUrl: true, createdAt: true },
+    select: {
+      id: true,
+      username: true,
+      firstName: true,
+      lastName: true,
+      country: true,
+      city: true,
+      school: true,
+      bio: true,
+      avatarUrl: true,
+      preferredLanguage: true,
+      roleLabel: true,
+      createdAt: true,
+    },
   });
   if (!user) return jsonError(404, "User not found");
 
@@ -42,4 +55,3 @@ export async function GET(_: Request, ctx: { params: Promise<{ username: string 
     submissions,
   });
 }
-
