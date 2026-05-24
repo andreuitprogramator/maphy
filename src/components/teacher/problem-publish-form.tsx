@@ -201,7 +201,8 @@ export function ProblemPublishForm({ initial }: { initial: TeacherProblemInitial
   }
 
   async function deleteDraft() {
-    if (!problemId || isPublished) return;
+    if (!problemId) return;
+    if (!confirm("Ești sigur că vrei să ștergi această problemă? Acțiunea este ireversibilă.")) return;
     setPending(true);
     const res = await fetch(`/api/teacher/problems/${problemId}`, { method: "DELETE" });
     setPending(false);
@@ -391,9 +392,9 @@ export function ProblemPublishForm({ initial }: { initial: TeacherProblemInitial
         <Button type="button" disabled={pending} onClick={() => submit(ProblemStatus.PUBLISHED)}>
           {isPublished ? (pending ? "Se salvează…" : "Salvează modificările") : pending ? "Se publică…" : "Publică"}
         </Button>
-        {problemId && !isPublished ? (
+        {problemId ? (
           <Button type="button" variant="secondary" disabled={pending} onClick={deleteDraft}>
-            Șterge draft
+            Șterge problema
           </Button>
         ) : null}
       </div>
