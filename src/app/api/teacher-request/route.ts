@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/session";
+import { requireUser } from "@/lib/auth/require-user";
 import { jsonError, jsonOk } from "@/lib/api/response";
 import { sendTeacherRequestEmail } from "@/lib/email/mailer";
 import { rateLimit } from "@/lib/rate-limit";
