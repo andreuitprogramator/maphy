@@ -112,6 +112,7 @@ async function ContestSetsHubInner({
             currentStage={stageParam}
             currentClass={classParam}
             currentSort={sortParam}
+            subject={config.subject}
           />
         </Suspense>
 
@@ -129,7 +130,7 @@ async function ContestSetsHubInner({
                   <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-300 hover:bg-zinc-50/60">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STAGE_COLORS[s.stage] ?? "bg-zinc-100 text-zinc-700"}`}>
-                        {STAGE_LABELS[s.stage] ?? s.stage}
+                        {s.stage === "LOCAL" && s.subject === "PHYSICS" ? "Evrika" : (STAGE_LABELS[s.stage] ?? s.stage)}
                       </span>
                       <span className="text-xs text-zinc-400">{s.year}</span>
                       {s.class > 0 && (

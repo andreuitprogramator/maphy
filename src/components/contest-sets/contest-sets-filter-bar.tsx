@@ -17,6 +17,7 @@ export function ContestSetsFilterBar({
   currentStage,
   currentClass,
   currentSort,
+  subject,
 }: {
   years: number[];
   classes: number[];
@@ -24,6 +25,7 @@ export function ContestSetsFilterBar({
   currentStage: string;
   currentClass: string;
   currentSort: string;
+  subject?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -49,7 +51,9 @@ export function ContestSetsFilterBar({
 
       <select className={sel} value={currentStage} onChange={(e) => update("stage", e.target.value)}>
         {STAGES.map((s) => (
-          <option key={s.value} value={s.value}>{s.label}</option>
+          <option key={s.value} value={s.value}>
+            {s.value === "LOCAL" && subject === "PHYSICS" ? "Evrika" : s.label}
+          </option>
         ))}
       </select>
 

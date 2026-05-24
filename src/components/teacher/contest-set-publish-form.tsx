@@ -47,13 +47,19 @@ export type ContestSetInitial = {
   attachments: AttachmentRow[];
 };
 
-function stageLabel(stage: Stage): string {
-  return stage === "LOCAL" ? "Locală" : stage === "COUNTY" ? "Județeană" : stage === "NATIONAL" ? "Națională" : stage;
+function stageLabel(stage: Stage, subject?: Subject): string {
+  if (stage === "LOCAL") return subject === Subject.PHYSICS ? "Evrika" : "Locală";
+  if (stage === "COUNTY") return "Județeană";
+  if (stage === "NATIONAL") return "Națională";
+  return stage;
 }
 
 function autoTitle(subject: Subject, stage: Stage, year: number): string {
   const sub = subject === Subject.MATH ? "Matematică" : subject === Subject.PHYSICS ? "Fizică" : "Chimie";
-  return `Olimpiada de ${sub} - Etapa ${stageLabel(stage)} ${year}`;
+  const label = stageLabel(stage, subject);
+  return subject === Subject.PHYSICS && stage === "LOCAL"
+    ? `Evrika ${year}`
+    : `Olimpiada de ${sub} - Etapa ${label} ${year}`;
 }
 
 function AttachmentList({ items, onRemove }: { items: AttachmentRow[]; onRemove: (id: string) => void }) {
@@ -344,7 +350,7 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
               value={form.stage}
               onChange={(e) => patch("stage", e.target.value as Stage)}
             >
-              <option value="LOCAL">Locală</option>
+              <option value="LOCAL">{form.subject === "PHYSICS" ? "Evrika" : "Locală"}</option>
               <option value="COUNTY">Județeană</option>
               <option value="NATIONAL">Națională</option>
             </select>
