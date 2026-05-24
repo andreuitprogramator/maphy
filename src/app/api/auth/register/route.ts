@@ -26,6 +26,11 @@ export async function POST(req: Request) {
   const { username, email, password, firstName, lastName, country, city } = parsed.data;
   const emailNorm = email.toLowerCase();
 
+  // Remove any unverified account with the same email/username so user can re-register
+  await prisma.user.deleteMany({
+    where: { emailVerified: false, OR: [{ username }, { email: emailNorm }] },
+  });
+
   const conflict = await prisma.user.findFirst({
     where: { OR: [{ username }, { email: emailNorm }] },
     select: { username: true, email: true },
