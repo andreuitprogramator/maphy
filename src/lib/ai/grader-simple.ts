@@ -399,7 +399,7 @@ export async function detectIsBaremImage(args: {
   const client = getClient();
   const model = getAiGradingModel();
   try {
-    const resp = await client.beta.chat.completions.parse({
+    const resp = await client.chat.completions.parse({
       model,
       messages: [
         {
