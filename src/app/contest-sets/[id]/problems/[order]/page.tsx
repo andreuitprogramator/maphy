@@ -68,7 +68,7 @@ export default async function ContestSetProblemPage({ params }: { params: Promis
   const initialAllSubmissions = serializePublicSubmissionsForClient(
     allSubmissionsRows.map((r) => {
       const isOwn = user?.id === r.userId;
-      const canViewImage = isOwn || viewerUnlockedPeerImages;
+      const canViewImage = isOwn;
       return { ...r, imageUrl: canViewImage ? r.imageUrl : null, canViewImage };
     }),
   );

@@ -82,7 +82,7 @@ export async function GET(req: Request) {
 
   const submissions = allRows.map((row) => {
     const isOwn = me?.id === row.userId;
-    const canViewImage = isOwn || viewerUnlockedPeerImages;
+    const canViewImage = isOwn;
     return {
       id: row.id,
       status: row.status,

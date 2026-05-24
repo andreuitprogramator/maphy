@@ -56,9 +56,7 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
             <Image src={row.imageUrl} alt="" fill className="object-cover" sizes="40px" />
           </span>
         </a>
-      ) : (
-        <div className="mt-2 text-xs text-zinc-500">Imaginea rezolvării este blocată.</div>
-      )}
+      ) : null}
       <div className="mt-2">
         {canExpand ? (
           <>

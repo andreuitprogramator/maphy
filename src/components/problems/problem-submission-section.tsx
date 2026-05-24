@@ -242,11 +242,6 @@ export function ProblemSubmissionSection({
             <div className="text-sm text-zinc-600">Nicio rezolvare încă. Fii primul.</div>
           ) : (
             <>
-              {!viewerUnlockedPeerImages ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                  Obține cel puțin {PEER_SOLUTION_IMAGE_UNLOCK_MIN_SCORE}/100 la această problemă pentru a debloca imaginile cu rezolvările altor utilizatori.
-                </div>
-              ) : null}
               {allItems.map((s) => (
                 <PublicSubmissionListItem key={s.id} row={s} />
               ))}
