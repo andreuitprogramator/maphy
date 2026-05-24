@@ -114,7 +114,7 @@ export async function getGlobalLeaderboard(
   }
 
   const setsCountMap = new Map(setsData.map((s) => [s.createdById, s._count._all]));
-  const allUserIds = new Set([...firstSolveMap.keys(), ...setsCountMap.keys()]);
+  const allUserIds = new Set([...firstSolveMap.keys(), ...Array.from(setsCountMap.keys()).filter((id): id is string => id !== null)]);
   if (allUserIds.size === 0) return { mode, leaderboard: [] };
 
   const users = await prisma.user.findMany({

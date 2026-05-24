@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db/prisma";
+import { ContestStage } from "@prisma/client";
 import { Container } from "@/components/layout/container";
 import { ContestSetsFilterBar } from "@/components/contest-sets/contest-sets-filter-bar";
 import { Suspense } from "react";
@@ -46,7 +47,7 @@ async function ContestSetsHubInner({
     subject: config.subject,
     status: "PUBLISHED" as const,
     ...(yearParam ? { year: Number(yearParam) } : {}),
-    ...(stageParam ? { stage: stageParam } : {}),
+    ...(stageParam && Object.values(ContestStage).includes(stageParam as ContestStage) ? { stage: stageParam as ContestStage } : {}),
     ...(classParam && Number(classParam) > 0 ? { class: Number(classParam) } : {}),
   };
 

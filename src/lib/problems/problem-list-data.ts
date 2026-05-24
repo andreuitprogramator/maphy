@@ -16,7 +16,7 @@ export type ProblemCardStats = {
 export type EnrichedProblem = {
   id: string;
   title: string;
-  subject: "MATH" | "PHYSICS";
+  subject: "MATH" | "PHYSICS" | "CHEMISTRY";
   difficulty: number;
   year: number;
   class: number;
