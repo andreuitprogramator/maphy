@@ -385,3 +385,42 @@ export async function gradeSimpleWithOpenAi(args: {
     de_imbunatatit: deImbunatatit,
   };
 }
+
+// ─── Barem detector ───────────────────────────────────────────────────────────
+
+const BaremDetectSchema = z.object({
+  is_barem: z.boolean(),
+});
+
+export async function detectIsBaremImage(args: {
+  bytes: Uint8Array;
+  mimeType: string;
+}): Promise<boolean> {
+  const client = getClient();
+  const model = getAiGradingModel();
+  try {
+    const resp = await client.beta.chat.completions.parse({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analizează imaginea. Răspunde cu is_barem: true dacă imaginea conține un barem oficial, schemă de notare, sau soluție model (cu punctaje explicite pe criterii), specific unui concurs sau olimpiadă. Răspunde cu is_barem: false dacă e o rezolvare scrisă de mână de un elev, chiar dacă conține calcule corecte.`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: toDataUrl(args.bytes, args.mimeType), detail: "low" },
+            },
+          ],
+        },
+      ],
+      response_format: zodResponseFormat(BaremDetectSchema, "barem_detect"),
+      ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
+    });
+    return resp.choices[0]?.message?.parsed?.is_barem ?? false;
+  } catch {
+    return false;
+  }
+}

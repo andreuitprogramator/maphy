@@ -6,6 +6,7 @@ import {
   generateMasterRubric,
   validateSimpleResult,
   computeSimpleScore,
+  detectIsBaremImage,
   type MasterRubric,
 } from "@/lib/ai/grader-simple";
 import { AiTeacherStyle, Prisma } from "@prisma/client";
@@ -1555,6 +1556,21 @@ export async function gradeSubmissionSimple(submissionId: string) {
       where: { id: submission.id },
       data: { status: "FAILED", aiFeedback: "Eroare internă: format imagine nesuportat.", reviewedAt: new Date() },
     });
+  }
+
+  // ── Detecție barem ───────────────────────────────────────────────────────
+  if (submission.user.username !== "pip") {
+    const isBarem = await detectIsBaremImage({ bytes: imageBytes, mimeType });
+    if (isBarem) {
+      return prisma.submission.update({
+        where: { id: submission.id },
+        data: {
+          status: "FAILED",
+          aiFeedback: "Nu ai voie să dai upload la barem ca soluție.",
+          reviewedAt: new Date(),
+        },
+      });
+    }
   }
 
   const extraUrls: string[] = (() => {
