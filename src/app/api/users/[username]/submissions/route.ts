@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { jsonError, jsonOk } from "@/lib/api/response";
+import { SubmissionStatus } from "@prisma/client";
 
 const VALID_SORTS = ["newest","oldest","score_desc","score_asc","title_az","title_za","difficulty_desc","difficulty_asc"] as const;
 type Sort = typeof VALID_SORTS[number];
@@ -31,7 +32,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ username: strin
     scoreBucket === "75"  ? { aiScore: { gte: 75 } } :
     scoreBucket === "below75" ? { aiScore: { lt: 75 } } :
     {};
-  const statusWhere = status !== "any" ? { status } : {};
+  const validStatuses = Object.values(SubmissionStatus) as string[];
+  const statusWhere = status !== "any" && validStatuses.includes(status)
+    ? { status: status as SubmissionStatus }
+    : {};
 
   // Fetch all matching rows (capped); subject/sort handled in memory since they span two nullable relations
   const raw = await prisma.submission.findMany({
