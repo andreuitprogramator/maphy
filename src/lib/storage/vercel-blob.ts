@@ -12,7 +12,7 @@ export class VercelBlobStorage implements StorageDriver {
 
   async saveFile(args: { bytes: Uint8Array; filename: string; folder: string }): Promise<StoredFile> {
     const key = `${args.folder}/${Date.now()}-${safeFilename(args.filename)}`;
-    const blob = await put(key, args.bytes, { access: "public" });
+    const blob = await put(key, Buffer.from(args.bytes), { access: "public" });
     return { publicUrl: blob.url, key };
   }
 }
