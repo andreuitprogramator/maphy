@@ -2,7 +2,7 @@
 import { requireUser } from "@/lib/auth/require-user";
 import { jsonError, jsonOk } from "@/lib/api/response";
 import { profilePatchSchema } from "@/lib/users/validation";
-import { Prisma, UserRole } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   findUserForSettingsPage,
   settingsUserBaseSelect,
@@ -30,14 +30,6 @@ export async function PATCH(req: Request) {
 
   const data = parsed.data;
 
-  const current = await prisma.user.findUnique({
-    where: { id: me.id },
-    select: { roleLabel: true },
-  });
-  if (current?.roleLabel === UserRole.TEACHER && data.roleLabel === UserRole.STUDENT) {
-    return jsonError(400, "Teachers cannot switch back to Student.");
-  }
-
   if (data.username !== me.username) {
     const currentUser = await prisma.user.findUnique({
       where: { id: me.id },
@@ -64,11 +56,7 @@ export async function PATCH(req: Request) {
     firstName: data.firstName,
     lastName: data.lastName,
     bio: data.bio ?? "",
-    country: data.country ?? "",
-    city: data.city ?? "",
     school: data.school ?? "",
-    preferredLanguage: data.preferredLanguage ?? "",
-    roleLabel: data.roleLabel,
   };
 
   try {

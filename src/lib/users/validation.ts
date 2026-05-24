@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AiTeacherStyle, UserRole } from "@prisma/client";
+import { AiTeacherStyle } from "@prisma/client";
 
 export const usernameSchema = z
   .string()
@@ -36,8 +36,6 @@ export const profilePatchSchema = z.object({
   lastName: z.string().trim().min(1, "Numele de familie este obligatoriu").max(64),
   bio: z.string().max(5000),
   school: z.string().max(200),
-  preferredLanguage: z.string().max(32),
-  roleLabel: z.nativeEnum(UserRole),
   aiTeacherStyle: z.nativeEnum(AiTeacherStyle),
 });
 

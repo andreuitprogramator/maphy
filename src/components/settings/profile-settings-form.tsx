@@ -24,7 +24,6 @@ export type SettingsUserDTO = {
   school: string;
   bio: string;
   avatarUrl: string | null;
-  preferredLanguage: string;
   roleLabel: UserRole;
   aiTeacherStyle?: string | null;
   usernameChangedAt?: string | null;
@@ -90,7 +89,6 @@ export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
   const [lastName, setLastName] = React.useState(user.lastName);
   const [school, setSchool] = React.useState(user.school);
   const [bio, setbio] = React.useState(user.bio);
-  const [preferredLanguage, setPreferredLanguage] = React.useState(user.preferredLanguage);
   const [aiTeacherStyle, setAiTeacherStyle] = React.useState<AiTeacherStyleValue>(() =>
     normalizeTeacherStyle(user.aiTeacherStyle),
   );
@@ -168,7 +166,6 @@ export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
         lastName,
         bio,
         school,
-        preferredLanguage,
         aiTeacherStyle,
       }),
     });
@@ -335,15 +332,6 @@ export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 />
                 <FieldError msg={fieldErrors.bio?.[0]} />
-              </div>
-              <div className="grid gap-1">
-                <label className="text-xs text-zinc-600">Limbă preferată</label>
-                <Input
-                  value={preferredLanguage}
-                  onChange={(e) => setPreferredLanguage(e.target.value)}
-                  placeholder="ex. ro, en"
-                  name="preferredLanguage"
-                />
               </div>
               <Button type="submit" disabled={pendingProfile}>
                 {pendingAvatar ? "Se încarcă fotografia…" : pendingProfile ? "Se salvează…" : "Salvează profilul"}
