@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = contestSetSaveSchema.safeParse(body);
   if (!parsed.success) {
-    return jsonError(400, "Invalid input", { issues: parsed.error.flatten().fieldErrors });
+    return jsonError(400, "Date invalide", { issues: parsed.error.flatten().fieldErrors });
   }
 
   const data = parsed.data;
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     data: {
       title: data.title,
       subject: data.subject,
-      competitionName: data.competitionName,
+      competitionName: data.competitionName || data.title,
       year: data.year,
       class: data.class,
       stage: data.stage,

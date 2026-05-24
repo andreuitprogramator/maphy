@@ -50,8 +50,8 @@ async function readCreatePayload(req: Request): Promise<{
 }
 
 function validateImageFile(file: File): string | null {
-  if (!isAllowedCommentImageMime(file.type)) return "Image must be JPEG, PNG, WebP, or GIF.";
-  if (file.size > COMMENT_IMAGE_MAX_BYTES) return "Image too large (max 3MB).";
+  if (!isAllowedCommentImageMime(file.type)) return "Imaginea trebuie să fie JPEG, PNG, WebP sau GIF.";
+  if (file.size > COMMENT_IMAGE_MAX_BYTES) return "Imaginea este prea mare (max 3MB).";
   return null;
 }
 
@@ -59,7 +59,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
   const { id } = await ctx.params;
   const me = await requireUser();
   const problem = await prisma.problem.findUnique({ where: { id }, select: { id: true } });
-  if (!problem) return jsonError(404, "Problem not found");
+  if (!problem) return jsonError(404, "Problema nu a fost găsită");
 
   const { tree, totalCount } = await fetchProblemCommentsTree(id, me?.id ?? null);
   return jsonOk({ comments: tree, totalCount });
@@ -68,11 +68,11 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const me = await requireUser();
-    if (!me) return jsonError(401, "Not authenticated");
+    if (!me) return jsonError(401, "Neautentificat");
     const { id } = await ctx.params;
 
     const rl = rateLimit({ key: `comments:${me.id}:${id}`, limit: 8, windowMs: 60_000 });
-    if (!rl.ok) return jsonError(429, "Too many comments", { retryAfterMs: rl.retryAfterMs });
+    if (!rl.ok) return jsonError(429, "Prea multe comentarii", { retryAfterMs: rl.retryAfterMs });
 
     const payload = await readCreatePayload(req);
     const text = normalizeCommentBody(payload.textRaw);
@@ -80,7 +80,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     let parentId: string | null = payload.parentCommentId;
     if (parentId) {
       const resolved = await resolveReplyParentId(id, parentId);
-      if (!resolved) return jsonError(400, "Invalid parent comment");
+      if (!resolved) return jsonError(400, "Comentariu părinte invalid");
       parentId = resolved;
     }
 
@@ -97,13 +97,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       imageUrl = stored.publicUrl;
     }
 
-    if (!text && !imageUrl) return jsonError(400, "Add text or an image.");
+    if (!text && !imageUrl) return jsonError(400, "Adaugă text sau o imagine.");
     if (text.length > MAX_COMMENT_LEN) return jsonError(400, `Comment too long (max ${MAX_COMMENT_LEN} chars)`);
-    if (text && containsProfanity(text)) return jsonError(400, "Comment rejected: please avoid abusive language.");
+    if (text && containsProfanity(text)) return jsonError(400, "Comentariul a fost respins: evită limbajul abuziv.");
 
     const problem = await prisma.problem.findUnique({ where: { id }, select: { id: true, status: true, createdById: true } });
-    if (!problem) return jsonError(404, "Problem not found");
-    if (problem.status !== "PUBLISHED") return jsonError(403, "Comments are enabled only for published problems");
+    if (!problem) return jsonError(404, "Problema nu a fost găsită");
+    if (problem.status !== "PUBLISHED") return jsonError(403, "Comentariile sunt activate doar pentru problemele publicate");
 
     const created = await prisma.comment.create({
       data: {
@@ -168,6 +168,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return jsonOk({ comment }, { status: 201 });
   } catch (err) {
     console.error("[comments POST]", err);
-    return jsonError(500, err instanceof Error ? err.message : "Could not create comment");
+    return jsonError(500, err instanceof Error ? err.message : "Nu s-a putut crea comentariul");
   }
 }

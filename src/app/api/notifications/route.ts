@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth/require-user";
 
 export async function GET(req: Request) {
   const me = await requireUser();
-  if (!me) return jsonError(401, "Not authenticated");
+  if (!me) return jsonError(401, "Neautentificat");
 
   const url = new URL(req.url);
   const rawLimit = Number(url.searchParams.get("limit") ?? 30);
@@ -24,7 +24,6 @@ export async function GET(req: Request) {
         createdAt: true,
         targetUrl: true,
         relatedProblemId: true,
-        relatedConversationId: true,
         actor: { select: { username: true, avatarUrl: true } },
       },
     }),

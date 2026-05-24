@@ -10,16 +10,17 @@ import { fetchEnrichedProblems } from "@/lib/problems/problem-list-data";
 import { parseProblemSort, PROBLEM_SORT_OPTIONS } from "@/lib/problems/sort";
 
 const subjects = [
-  { value: "", label: "All" },
-  { value: "MATH", label: "Math" },
-  { value: "PHYSICS", label: "Physics" },
+  { value: "", label: "Toate" },
+  { value: "MATH", label: "Matematică" },
+  { value: "PHYSICS", label: "Fizică" },
+  { value: "CHEMISTRY", label: "Chimie" },
 ] as const;
 
 const phases = [
-  { value: "", label: "All" },
+  { value: "", label: "Toate" },
   { value: "LOCAL", label: "Local" },
-  { value: "COUNTY", label: "County" },
-  { value: "NATIONAL", label: "National" },
+  { value: "COUNTY", label: "Județean" },
+  { value: "NATIONAL", label: "Național" },
 ] as const;
 
 const POPULAR_MIN_SUBMISSIONS = 20;
@@ -34,9 +35,9 @@ function getFirst(search: Search, key: string) {
 }
 
 function progressLabel(stats: { mySubmissionCount: number; hasPerfect100: boolean }) {
-  if (stats.hasPerfect100) return { text: "Solved (100)", className: "bg-emerald-100 text-emerald-900" };
-  if (stats.mySubmissionCount > 0) return { text: "Attempted", className: "bg-amber-50 text-amber-950" };
-  return { text: "Not tried", className: "bg-zinc-100 text-zinc-700" };
+  if (stats.hasPerfect100) return { text: "Rezolvat (100)", className: "bg-emerald-100 text-emerald-900" };
+  if (stats.mySubmissionCount > 0) return { text: "Încercat", className: "bg-amber-50 text-amber-950" };
+  return { text: "Neîncercat", className: "bg-zinc-100 text-zinc-700" };
 }
 
 export type ProblemsHubConfig = {
@@ -45,7 +46,7 @@ export type ProblemsHubConfig = {
   accentClass: string;
   chips: string[];
   emptyText: string;
-  subjectPreset?: "MATH" | "PHYSICS";
+  subjectPreset?: "MATH" | "PHYSICS" | "CHEMISTRY";
   basePath: string;
 };
 
@@ -65,7 +66,7 @@ export async function ProblemsHub({
 
   const where: Prisma.ProblemWhereInput = { status: ProblemStatus.PUBLISHED };
   if (config.subjectPreset) where.subject = config.subjectPreset;
-  if (!config.subjectPreset && (subject === "MATH" || subject === "PHYSICS")) where.subject = subject;
+  if (!config.subjectPreset && (subject === "MATH" || subject === "PHYSICS" || subject === "CHEMISTRY")) where.subject = subject;
   if (phase === "LOCAL" || phase === "COUNTY" || phase === "NATIONAL") where.phase = phase;
   if (year && /^\d+$/.test(year)) where.year = Number(year);
   if (cls && /^\d+$/.test(cls)) where.class = Number(cls);
@@ -105,12 +106,12 @@ export async function ProblemsHub({
 
         <Card>
           <CardHeader>
-            <div className="text-sm font-medium text-zinc-900">Filters & sort</div>
+            <div className="text-sm font-medium text-zinc-900">Filtre și sortare</div>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             {!config.subjectPreset ? (
               <div className="grid gap-1">
-                <label className="text-xs text-zinc-600">Subject</label>
+                <label className="text-xs text-zinc-600">Materie</label>
                 <select className="h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm" defaultValue={subject ?? ""} name="subject" form="filters">
                   {subjects.map((s) => (
                     <option key={s.value} value={s.value}>
@@ -121,9 +122,9 @@ export async function ProblemsHub({
               </div>
             ) : null}
             <div className="grid gap-1">
-              <label className="text-xs text-zinc-600">Year</label>
+              <label className="text-xs text-zinc-600">An</label>
               <select className="h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm" defaultValue={year ?? ""} name="year" form="filters">
-                <option value="">All</option>
+                <option value="">Toți</option>
                 {years.map((y) => (
                   <option key={y} value={y}>
                     {y}
@@ -132,9 +133,9 @@ export async function ProblemsHub({
               </select>
             </div>
             <div className="grid gap-1">
-              <label className="text-xs text-zinc-600">Class</label>
+              <label className="text-xs text-zinc-600">Clasă</label>
               <select className="h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm" defaultValue={cls ?? ""} name="class" form="filters">
-                <option value="">All</option>
+                <option value="">Toate</option>
                 {Array.from({ length: 8 }).map((_, i) => (
                   <option key={i + 5} value={i + 5}>
                     {i + 5}
@@ -143,7 +144,7 @@ export async function ProblemsHub({
               </select>
             </div>
             <div className="grid gap-1">
-              <label className="text-xs text-zinc-600">Phase</label>
+              <label className="text-xs text-zinc-600">Etapă</label>
               <select className="h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm" defaultValue={phase ?? ""} name="phase" form="filters">
                 {phases.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -153,7 +154,7 @@ export async function ProblemsHub({
               </select>
             </div>
             <div className="grid gap-1 sm:col-span-2 lg:col-span-2">
-              <label className="text-xs text-zinc-600">Sort by</label>
+              <label className="text-xs text-zinc-600">Sortare după</label>
               <select className="h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm" defaultValue={sort} name="sort" form="filters">
                 {PROBLEM_SORT_OPTIONS.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -165,12 +166,12 @@ export async function ProblemsHub({
 
             <form id="filters" className="lg:col-span-6 flex flex-wrap gap-2 pt-1" method="get">
               <button className="h-10 rounded-xl bg-[color:var(--accent)] px-4 text-sm font-medium text-white hover:bg-[color:var(--accent-2)]">
-                Apply
+                Aplică
               </button>
               <Link className="h-10 rounded-xl border border-zinc-200 px-4 text-sm font-medium grid place-items-center hover:bg-zinc-50" href={config.basePath}>
-                Reset
+                Resetează
               </Link>
-              <div className="text-sm text-zinc-500 self-center">{problems.length} problems</div>
+              <div className="text-sm text-zinc-500 self-center">{problems.length} probleme</div>
             </form>
           </CardContent>
         </Card>
@@ -181,7 +182,7 @@ export async function ProblemsHub({
             const prog = progressLabel(stats);
             const popular = stats.submissionCount >= POPULAR_MIN_SUBMISSIONS;
             const topRated = stats.ratingAvg != null && stats.ratingAvg >= TOP_RATED_MIN && stats.ratingCount >= TOP_RATED_MIN_COUNT;
-            const subjectTone = p.subject === "MATH" ? "bg-violet-100 text-violet-900" : "bg-sky-100 text-sky-900";
+            const subjectTone = p.subject === "MATH" ? "bg-violet-100 text-violet-900" : p.subject === "PHYSICS" ? "bg-sky-100 text-sky-900" : "bg-green-100 text-green-900";
 
             return (
               <Link key={p.id} href={`/problems/${p.id}`} className="group">
@@ -189,7 +190,7 @@ export async function ProblemsHub({
                   <CardHeader className="space-y-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", subjectTone)}>
-                        {p.subject === "MATH" ? "Math" : "Physics"}
+                        {p.subject === "MATH" ? "Matematică" : p.subject === "PHYSICS" ? "Fizică" : "Chimie"}
                       </span>
                       {popular ? (
                         <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-900">
@@ -198,7 +199,7 @@ export async function ProblemsHub({
                       ) : null}
                       {topRated ? (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-950">
-                          Top rated
+                          Top votat
                         </span>
                       ) : null}
                       {me ? (
@@ -209,16 +210,16 @@ export async function ProblemsHub({
                     </div>
                     <div className="text-sm font-semibold text-zinc-900 group-hover:text-[color:var(--accent)]">{p.title}</div>
                     <div className="text-xs text-zinc-600">
-                      {p.year} · Class {p.class} · {p.phase.toLowerCase()}
+                      {p.year} · Clasa {p.class} · {p.phase.toLowerCase()}
                     </div>
                   </CardHeader>
                   <CardContent className="grid gap-2 text-xs text-zinc-700">
                     <div className="inline-flex w-fit items-center rounded-full bg-zinc-100 px-3 py-1 font-medium text-zinc-800">
-                      Difficulty {p.difficulty}/10
+                      Dificultate {p.difficulty}/10
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
                       <span>
-                        <span className="font-medium text-zinc-900">{stats.submissionCount}</span> submits
+                        <span className="font-medium text-zinc-900">{stats.submissionCount}</span> rezolvări
                       </span>
                       {stats.ratingCount > 0 && stats.ratingAvg != null ? (
                         <span>
@@ -226,7 +227,7 @@ export async function ProblemsHub({
                           <span className="text-zinc-500"> ({stats.ratingCount})</span>
                         </span>
                       ) : (
-                        <span className="text-zinc-500">No ratings yet</span>
+                        <span className="text-zinc-500">Fără evaluări</span>
                       )}
                     </div>
                   </CardContent>

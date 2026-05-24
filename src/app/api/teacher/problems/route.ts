@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = teacherProblemSaveSchema.safeParse(body);
   if (!parsed.success) {
-    return jsonError(400, "Invalid input", { issues: parsed.error.flatten().fieldErrors });
+    return jsonError(400, "Date invalide", { issues: parsed.error.flatten().fieldErrors });
   }
 
   const data = parsed.data;

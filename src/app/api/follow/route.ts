@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { requireUser } from "@/lib/auth/require-user";
 import { jsonError, jsonOk } from "@/lib/api/response";
@@ -8,18 +8,18 @@ const BodySchema = z.object({ username: z.string().min(1) });
 
 export async function POST(req: Request) {
   const me = await requireUser();
-  if (!me) return jsonError(401, "Not authenticated");
+  if (!me) return jsonError(401, "Neautentificat");
 
   const body = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(body);
-  if (!parsed.success) return jsonError(400, "Invalid input");
+  if (!parsed.success) return jsonError(400, "Date invalide");
 
   const target = await prisma.user.findUnique({
     where: { username: parsed.data.username },
     select: { id: true },
   });
-  if (!target) return jsonError(404, "User not found");
-  if (target.id === me.id) return jsonError(400, "You cannot follow yourself");
+  if (!target) return jsonError(404, "Utilizatorul nu a fost găsit");
+  if (target.id === me.id) return jsonError(400, "Nu poți urmări propriul cont");
 
   const existing = await prisma.follow.findUnique({
     where: { followerId_followingId: { followerId: me.id, followingId: target.id } },
@@ -42,14 +42,14 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const me = await requireUser();
-  if (!me) return jsonError(401, "Not authenticated");
+  if (!me) return jsonError(401, "Neautentificat");
 
   const url = new URL(req.url);
   const username = url.searchParams.get("username");
-  if (!username) return jsonError(400, "Missing username");
+  if (!username) return jsonError(400, "Numele de utilizator lipsește");
 
   const target = await prisma.user.findUnique({ where: { username }, select: { id: true } });
-  if (!target) return jsonError(404, "User not found");
+  if (!target) return jsonError(404, "Utilizatorul nu a fost găsit");
 
   await prisma.follow
     .delete({ where: { followerId_followingId: { followerId: me.id, followingId: target.id } } })

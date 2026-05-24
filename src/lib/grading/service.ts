@@ -1,10 +1,19 @@
 import { prisma } from "@/lib/db/prisma";
-import { gradeWithOpenAi } from "@/lib/ai/grader";
+import { notifyFollowersOfSubmission } from "@/lib/notifications/service";
+import { gradeWithOpenAi, extractRubricSectionsFromImages } from "@/lib/ai/grader";
+import {
+  gradeSimpleWithOpenAi,
+  generateMasterRubric,
+  validateSimpleResult,
+  computeSimpleScore,
+  type MasterRubric,
+} from "@/lib/ai/grader-simple";
 import { AiTeacherStyle, Prisma } from "@prisma/client";
 import { readFile } from "fs/promises";
 import path from "path";
 import { extractPdfTextFromPublicUrl } from "@/lib/pdf/extract-text";
 import type { GraderModelResult } from "@/lib/ai/types";
+import { parseRubricSections } from "@/lib/problems/rubric-format";
 
 function imageUrlToDiskPath(imageUrl: string) {
   const clean = imageUrl.startsWith("/") ? imageUrl.slice(1) : imageUrl;
@@ -30,12 +39,129 @@ function clampScore(score: number, maxScore: number) {
   return Math.max(0, Math.min(maxScore, Math.round(score)));
 }
 
+/**
+ * Rotunjește un scor procentual la o valoare "frumoasă" din lista [50, 75, 90, 100]
+ * dacă diferența este ≤ 1.5 puncte procentuale. Altfel returnează rotunjit simplu.
+ */
+export function prettifyDisplayScore(raw: number): number {
+  const NICE_SCORES = [50, 75, 90, 100] as const;
+  for (const nice of NICE_SCORES) {
+    if (raw < nice && nice - raw <= 1.5) return nice;
+  }
+  return Math.round(raw);
+}
+
+// PostgreSQL UTF8 respinge null bytes (0x00). Le eliminăm din orice text primit de la AI.
+function sanitizeForDb(s: string | null | undefined): string | null {
+  if (s == null) return null;
+  return s.replace(/\x00/g, "");
+}
+
+function sanitizeObjectForDb<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj).replace(/\\u0000/g, "")) as T;
+}
+
 function sumBreakdownPoints(rows: { points: number }[]) {
   return rows.reduce((s, r) => s + (Number.isFinite(r.points) ? r.points : 0), 0);
 }
 
 function sumBreakdownMaxPoints(rows: { maxPoints: number }[]) {
   return rows.reduce((s, r) => s + (Number.isFinite(r.maxPoints) ? r.maxPoints : 0), 0);
+}
+
+type RubricRow = { label: string; points: number; maxPoints: number; notes: string };
+
+/**
+ * Rescalează rândurile AI astfel încât sum(maxPoints) = maxScore.
+ * Necesară când AI-ul returnează maxPoints pe altă scară (e.g. /50 în loc de /100).
+ * Nota: proporționalizarea punctelor față de scara originală AI este
+ * responsabilitatea reconcileWithRubricSections, nu a acestei funcții.
+ */
+function normalizeRubricBreakdownScale(rows: RubricRow[], maxScore: number): RubricRow[] {
+  if (rows.length === 0 || maxScore <= 0) return rows;
+  const totalMax = sumBreakdownMaxPoints(rows);
+  if (totalMax <= 0) return rows;
+  if (totalMax === maxScore)
+    return rows.map((r) => ({ ...r, points: Math.max(0, Math.min(r.points, r.maxPoints)) }));
+
+  const factor = maxScore / totalMax;
+  const totalEarned = sumBreakdownPoints(rows);
+
+  let scaled: RubricRow[] = rows.map((r) => ({
+    ...r,
+    maxPoints: Math.max(1, Math.round(r.maxPoints * factor)),
+  }));
+
+  // Corectează eroarea de rotunjire pentru ca sum(maxPoints) să fie exact maxScore.
+  const diff = maxScore - sumBreakdownMaxPoints(scaled);
+  if (diff !== 0) {
+    const last = scaled.length - 1;
+    scaled = scaled.map((r, i) =>
+      i === last ? { ...r, maxPoints: Math.max(1, r.maxPoints + diff) } : r,
+    );
+  }
+
+  // Proporțional: cât % din maxPoints-ul AI a câștigat elevul → aplicăm același % pe noile maxPoints.
+  // Garda min(fractionPoints, src.points) previne supra-acordarea când fracția e mică (e.g. 2/50 = 4%).
+  return scaled.map((r, i) => {
+    const src = rows[i]!;
+    const fraction = src.maxPoints > 0 ? Math.max(0, Math.min(1, src.points / src.maxPoints)) : 0;
+    const fractionPoints = r.maxPoints > 0 ? Math.round(fraction * r.maxPoints) : 0;
+    return { ...r, points: Math.max(0, Math.min(fractionPoints, src.points)) };
+  });
+}
+
+/**
+ * Elimină rânduri duplicate (același label, case-insensitive).
+ * Punctele rândurilor duplicate se sumează, limitate la maxPoints.
+ */
+function deduplicateRubricRows(rows: RubricRow[]): RubricRow[] {
+  const seen = new Map<string, number>();
+  const result: RubricRow[] = [];
+  for (const row of rows) {
+    const key = row.label.trim().toLowerCase();
+    if (seen.has(key)) {
+      const idx = seen.get(key)!;
+      result[idx] = {
+        ...result[idx]!,
+        points: Math.min(result[idx]!.maxPoints, result[idx]!.points + row.points),
+      };
+    } else {
+      seen.set(key, result.length);
+      result.push({ ...row });
+    }
+  }
+  return result;
+}
+
+type ValidationResult = { valid: true } | { valid: false; reason: string };
+
+/**
+ * Verifică că rândurile finale sunt valide și că suma maxPoints ≈ expectedSumMax.
+ * Acceptă o toleranță de 0.01 pentru bareme cu puncte float.
+ */
+function validateFinalRubricRows(rows: RubricRow[], expectedSumMax: number): ValidationResult {
+  if (rows.length === 0) return { valid: false, reason: "rubric_breakdown gol" };
+  for (const r of rows) {
+    if (!Number.isFinite(r.points) || r.points < 0)
+      return { valid: false, reason: `points invalid pentru "${r.label}"` };
+    if (!Number.isFinite(r.maxPoints) || r.maxPoints <= 0)
+      return { valid: false, reason: `maxPoints invalid pentru "${r.label}"` };
+    if (r.points > r.maxPoints + 0.01)
+      return { valid: false, reason: `points > maxPoints pentru "${r.label}"` };
+  }
+  // Duplicate labels interzise — indică criterii inventate sau reconciliere greșită.
+  const labelsSeen = new Set<string>();
+  for (const r of rows) {
+    const key = r.label.trim().toLowerCase();
+    if (labelsSeen.has(key))
+      return { valid: false, reason: `label duplicat în rubric_breakdown: "${r.label}"` };
+    labelsSeen.add(key);
+  }
+  const sumMax = sumBreakdownMaxPoints(rows);
+  if (Math.abs(sumMax - expectedSumMax) > 0.01)
+    return { valid: false, reason: `sum(maxPoints)=${sumMax} ≠ expected=${expectedSumMax}` };
+  return { valid: true };
 }
 
 function scopeBreakdownToProblem(
@@ -402,6 +528,22 @@ function notesSuggestMissingEvidence(notes: string): boolean {
   );
 }
 
+/**
+ * Ultimă linie de apărare: dacă modelul a scris "Neabordat:" în note dar a lăsat
+ * puncte > 0 (inconsistență internă), forțăm 0. Aceasta se aplică mereu, indiferent
+ * de alte garduri.
+ */
+function enforceNeabordatZeros(
+  rows: Array<{ label: string; points: number; maxPoints: number; notes: string }>,
+): Array<{ label: string; points: number; maxPoints: number; notes: string }> {
+  return rows.map((r) => {
+    if (r.points > 0 && notesIndicateSubPartNotAttempted(r.notes)) {
+      return { ...r, points: 0 };
+    }
+    return r;
+  });
+}
+
 function applyDeterministicEvidencePenalties(
   rows: Array<{ label: string; points: number; maxPoints: number; notes: string }>,
 ) {
@@ -495,10 +637,76 @@ function applyRubricAndEvidenceGuards(
 }
 
 /**
+ * Extrage cheia canonică a unei secțiuni din label-ul său.
+ * "a) Calcul", "A. forță", "a:" → "a"
+ * "Section 1: ..." → "1"
+ */
+function extractSectionKey(label: string): string {
+  const s = (label ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+  const letter = s.match(/^([a-e])[\)\.\:]/);
+  if (letter) return letter[1]!;
+  const section = s.match(/^(?:section|sectiunea)\s*(\d+)/);
+  if (section) return section[1]!;
+  const first = s.match(/^([a-z0-9])/);
+  return first ? first[1]! : s.slice(0, 3);
+}
+
+/**
+ * Reconciliază breakdown-ul returnat de AI cu secțiunile reale ale baremului.
+ *
+ * Problema: AI-ul poate inventa criterii care se potrivesc cu răspunsul elevului
+ * (de ex. A–E) în loc să folosească criteriile profesorului (de ex. a) și b)).
+ *
+ * Fix: mapăm fiecare rând AI la secțiunea de barem cu aceeași cheie (literă/număr),
+ * agregăm punctele, și ignorăm rândurile fără corespondent în barem.
+ * Secțiunile din barem fără niciun rând AI primit → points=0, "Neabordat:".
+ */
+function reconcileWithRubricSections(
+  rows: Array<{ label: string; points: number; maxPoints: number; notes: string }>,
+  sections: Array<{ label: string; maxPoints: number }>,
+): Array<{ label: string; points: number; maxPoints: number; notes: string }> {
+  const sectionKeys = sections.map((s) => extractSectionKey(s.label));
+
+  const earnedByKey = new Map<string, number>();
+  const notesByKey = new Map<string, string>();
+  const aiMaxByKey = new Map<string, number>();
+
+  for (const row of rows) {
+    const key = extractSectionKey(row.label);
+    if (!sectionKeys.includes(key)) continue; // Criteriu inventat de AI → ignorat
+    earnedByKey.set(key, (earnedByKey.get(key) ?? 0) + row.points);
+    aiMaxByKey.set(key, (aiMaxByKey.get(key) ?? 0) + row.maxPoints);
+    if (!notesByKey.has(key) && row.notes) notesByKey.set(key, row.notes);
+  }
+
+  return sections.map((section) => {
+    const key = extractSectionKey(section.label);
+    // Folosim maxPoints din barem dacă e specificat, altfel din rândul AI corespondent
+    const maxPoints =
+      section.maxPoints > 0 ? section.maxPoints : (aiMaxByKey.get(key) ?? 0);
+    const sumEarned = earnedByKey.get(key) ?? 0;
+    const sumAiMax = aiMaxByKey.get(key) ?? 0;
+    // Proporțional: cât % din maxPoints-ul AI a câștigat elevul → aplicăm același % pe maxPoints din barem.
+    // Păstrăm float pentru scorul brut; conversia la procent 0-100 se face în alignReadableGradingResult.
+    const fraction = sumAiMax > 0 ? Math.max(0, Math.min(1, sumEarned / sumAiMax)) : 0;
+    const rawEarned = maxPoints > 0 ? fraction * maxPoints : 0;
+    // Nu acordăm mai multe puncte decât a câștigat efectiv din scala AI
+    const points = Math.min(rawEarned, sumEarned);
+    const notes =
+      notesByKey.get(key) ?? "Neabordat: criteriul nu apare în răspunsul elevului.";
+    return { label: section.label, points, maxPoints, notes };
+  });
+}
+
+/**
  * OpenAI sometimes returns a `score` that disagrees with `rubric_breakdown`.
  * Users should see one consistent story: final score follows rubric rows.
  */
-function alignReadableGradingResult(
+export function alignReadableGradingResult(
   result: GraderModelResult,
   maxScore: number,
   scopedProblemNumber?: number,
@@ -513,16 +721,57 @@ function alignReadableGradingResult(
   if (result.readability !== "readable" || result.score == null) return result;
 
   const scopedRows = scopeBreakdownToProblem(result.rubric_breakdown ?? [], scopedProblemNumber);
-  const attemptedSubParts = finalizeAttemptedSubParts(
-    result.attempted_subparts,
-    opts?.ocrExtractedText,
-    scopedRows,
-  );
-  const subPartScopedRows = applySubPartAttemptGuards(scopedRows, attemptedSubParts);
-  const consistentRows = applyNotesPointsConsistency(subPartScopedRows, opts?.ocrExtractedText);
+
+  // Normalizare scară: sum(maxPoints) → maxScore, înainte de orice reconciliere.
+  const normalizedRows = normalizeRubricBreakdownScale(scopedRows, maxScore);
+  // Elimină duplicate (același label) înainte de reconciliere cu baremul profesorului.
+  const dedupedRows = deduplicateRubricRows(normalizedRows);
+
+  // Reconciliere cu baremul profesorului: mapăm rândurile AI la secțiunile fixe din barem.
+  // Criteriile inventate fără corespondent sunt ignorate; secțiunile lipsă primesc 0 puncte.
+  // Pentru bareme din imagini, opts.gradingRubric conține textul extras de AI din imagine.
+  const useImageBased = Boolean(opts?.useImageBasedRubric || opts?.useImageBasedStatement);
+  const rubricSections = opts?.gradingRubric
+    ? parseRubricSections(opts.gradingRubric)
+    : null;
+
+  let baseRows: RubricRow[];
+  if (rubricSections) {
+    baseRows = reconcileWithRubricSections(scopedRows, rubricSections);
+  } else if (useImageBased) {
+    // Baremul este imagine dar extragerea a eșuat → un singur rând generic cu scorul global.
+    // Aplicăm gardurile de sub-puncte pe rândurile AI înainte de a calcula totalul, astfel
+    // încât sub-punctele neabordate să nu gonfleze scorul din rândul generic.
+    const attemptedForFallback = normalizeAttemptedSubParts(result.attempted_subparts);
+    const guardedForFallback = applySubPartAttemptGuards(dedupedRows, attemptedForFallback);
+    const totalEarned = sumBreakdownPoints(guardedForFallback);
+    baseRows = [
+      {
+        label: "Conform baremului atașat",
+        points: Math.max(0, Math.min(maxScore, totalEarned)),
+        maxPoints: maxScore,
+        notes: "Baremul a fost furnizat ca imagine. Evaluarea AI a fost calculată global din imaginile baremului.",
+      },
+    ];
+  } else {
+    baseRows = dedupedRows;
+  }
+
+  // Când barem/cerință sunt imagini, AI-ul vede contextul vizual direct — euristicile
+  // bazate pe OCR și STUDENT_WORK_MARKERS (specifice unor probleme concrete) nu se aplică.
+  // Totuși, regula fundamentală (zero pentru sub-puncte neîncercate conform
+  // attempted_subparts) se aplică MEREU, indiferent de sursa baremului.
+  const attemptedSubParts = useImageBased
+    ? normalizeAttemptedSubParts(result.attempted_subparts)
+    : finalizeAttemptedSubParts(result.attempted_subparts, opts?.ocrExtractedText, baseRows);
+  const subPartScopedRows = applySubPartAttemptGuards(baseRows, attemptedSubParts);
+  const consistentRows = useImageBased
+    ? subPartScopedRows
+    : applyNotesPointsConsistency(subPartScopedRows, opts?.ocrExtractedText);
   const evidenceRows = applyDeterministicEvidencePenalties(consistentRows);
+  const enforcedRows = enforceNeabordatZeros(evidenceRows);
   const guarded = applyRubricAndEvidenceGuards(
-    evidenceRows,
+    enforcedRows,
     opts?.gradingRubric ?? "",
     opts?.ocrExtractedText ?? null,
     {
@@ -538,6 +787,50 @@ function alignReadableGradingResult(
       ...result,
       score: clampScore(Math.min(result.score, maxScore * 0.7), maxScore),
       short_feedback: `${result.short_feedback ?? ""} (Atenție: nu am putut valida clar criteriile strict pe subiectul selectat.)`.trim(),
+    };
+  }
+
+  // Calea nouă (scară brută): când există secțiuni fixe de barem, calculăm procentul direct
+  // fără a rescala maxPoints la maxScore. Score = prettifyDisplayScore(100 * earned / total).
+  if (rubricSections) {
+    const rawPercent = totalMax > 0 ? (100 * totalEarned) / totalMax : 0;
+    let alignedScore = prettifyDisplayScore(rawPercent);
+    if (opts?.strictContestMode) {
+      if (guarded.invalidRubricRows >= Math.max(2, rows.length)) {
+        alignedScore = Math.min(alignedScore, 70);
+      }
+      if (guarded.weakEvidenceRows >= Math.max(2, Math.ceil(rows.length / 2))) {
+        alignedScore = Math.min(alignedScore, 75);
+      }
+    }
+    const ratio = alignedScore / 100;
+    const sanitizeRaw = (text: string | null) => {
+      if (!text) return text;
+      let t = text;
+      if (ratio < 0.999) {
+        t = t
+          .replace(/\b10\s*\/\s*10\b/gi, "")
+          .replace(/\bfull\s*marks\b/gi, "")
+          .replace(/\bperfect\b/gi, "")
+          .replace(/rezolvare\s+complet[aă]/gi, "rezolvare parțială")
+          .replace(/\bcomplet[aă]\b/gi, "parțial")
+          .trim();
+      }
+      t = t
+        .replace(/\bfinal_feedback\d+_[a-z0-9_]+\b/gi, "")
+        .replace(/\bthis_subtopic_not_summarize_outside_of_rubric\b/gi, "")
+        .replace(/\btextBars_for_clarity\b/gi, "")
+        .trim();
+      return t;
+    };
+    return {
+      ...result,
+      score: alignedScore,
+      rubric_breakdown: rows,
+      short_feedback: sanitizeRaw(result.short_feedback),
+      final_feedback:
+        (sanitizeRaw(result.final_feedback) ?? "") +
+        "\n\n(Notă: punctajul afișat reprezintă procentul din baremul problemei.)",
     };
   }
 
@@ -558,8 +851,15 @@ function alignReadableGradingResult(
     guard++;
   }
 
-  // Preserve the model's *relative* performance on the rubric when rescaling totals.
-  const targetEarned = clampScore(Math.round((totalEarned / totalMax) * maxScore), maxScore);
+  // Scorul final se raportează la baremul COMPLET (maxScore), nu la suma rândurilor
+  // returnate de AI. Dacă AI-ul omite rânduri pentru criterii neabordate, acele criterii
+  // contribuie cu 0 la numărător, dar numitorul rămâne totalul fix al baremului.
+  // Folosim Math.max(totalMax, maxScore) pentru a acoperi și cazul rar în care AI-ul
+  // returnează un total mai mare decât maxScore (eroare de normalizare).
+  const targetEarned = clampScore(
+    Math.round((totalEarned / Math.max(totalMax, maxScore)) * maxScore),
+    maxScore,
+  );
 
   const fractional = scaledMaxes.map((r, i) => {
     const src = rows[i]!;
@@ -739,8 +1039,14 @@ export async function gradeSubmission(submissionId: string) {
           maxScore: true,
           expectedConcepts: true,
           gradingRubric: true,
+          extractedRubricText: true,
           statement: true,
           officialSolution: true,
+          attachments: {
+            where: { fileType: "IMAGE", role: { in: ["STATEMENT", "RUBRIC"] } },
+            select: { id: true, fileUrl: true, fileType: true, role: true, sortOrder: true },
+            orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }],
+          },
         },
       },
       contestSetProblem: {
@@ -749,6 +1055,7 @@ export async function gradeSubmission(submissionId: string) {
           title: true,
           orderNumber: true,
           maxScore: true,
+          extractedRubricText: true,
           statementTextOverride: true,
           solutionText: true,
           contestSet: {
@@ -809,6 +1116,10 @@ export async function gradeSubmission(submissionId: string) {
     });
   }
 
+  const problemAttachments = submission.problem?.attachments ?? [];
+  const hasProblemStatementImgs = problemAttachments.some((a) => a.role === "STATEMENT");
+  const hasProblemRubricImgs = problemAttachments.some((a) => a.role === "RUBRIC");
+
   const contestAttachments = submission.contestSetProblem?.contestSet.attachments ?? [];
   const contestOrder = submission.contestSetProblem?.orderNumber;
   const hasProblemStatementImages = Boolean(
@@ -849,9 +1160,13 @@ export async function gradeSubmission(submissionId: string) {
 
   const gradingContext = submission.problem
     ? {
-        statement: submission.problem.statement,
+        statement: hasProblemStatementImgs
+          ? "(Cerința problemei este în imaginile atașate. Folosește-le ca sursă principală pentru context.)"
+          : submission.problem.statement,
         officialSolution: submission.problem.officialSolution,
-        gradingRubric: submission.problem.gradingRubric,
+        gradingRubric: hasProblemRubricImgs
+          ? "(Baremul problemei este în imaginile atașate. Criteriile și punctajele trebuie luate EXCLUSIV din aceste imagini.)"
+          : submission.problem.gradingRubric,
         maxScore: submission.problem.maxScore,
       }
     : submission.contestSetProblem
@@ -898,6 +1213,9 @@ export async function gradeSubmission(submissionId: string) {
   }
 
   let result;
+  let gradingStage = "init";
+  let extractedRubricTextOuter: string | undefined;
+  let rawRubricTotalOuter: number | null = null;
   try {
     const teacherStyle = submission.user?.aiTeacherStyle ?? AiTeacherStyle.SUPPORTIVE_TEACHER;
     const scopedProblemNumber = submission.contestSetProblem?.orderNumber;
@@ -922,7 +1240,79 @@ export async function gradeSubmission(submissionId: string) {
               }),
           )
         ).filter((x): x is { mimeType: string; bytes: Uint8Array } => Boolean(x))
-      : [];
+      : submission.problem
+        ? (
+            await Promise.all(
+              problemAttachments
+                .slice(0, 12)
+                .map(async (a) => {
+                  const bytes = await tryReadPublicFileBytes(a.fileUrl);
+                  if (!bytes) return null;
+                  const m = detectMimeType(bytes);
+                  if (!m.startsWith("image/")) return null;
+                  return { mimeType: m, bytes };
+                }),
+            )
+          ).filter((x): x is { mimeType: string; bytes: Uint8Array } => Boolean(x))
+        : [];
+
+    // Extrage structura baremului din imagini (pass separat, fără imaginea elevului).
+    // Se folosește cache-ul din DB dacă există; altfel se apelează AI și se persistă.
+    const isImageBasedRubric = Boolean(hasProblemRubricImages || hasProblemRubricImgs);
+    const cachedRubricText =
+      submission.problem?.extractedRubricText ?? submission.contestSetProblem?.extractedRubricText ?? null;
+    let extractedRubricText: string | undefined = cachedRubricText ?? undefined;
+    gradingStage = "rubric-extraction";
+    if (isImageBasedRubric && !cachedRubricText) {
+      const rubricImgAttachments = submission.contestSetProblem && contestOrder
+        ? contestAttachments.filter(
+            (a) => a.fileType === "IMAGE" && a.role === "PROBLEM_RUBRIC" && a.problemOrderNumber === contestOrder,
+          ).slice(0, 6)
+        : submission.problem
+          ? problemAttachments.filter((a) => a.role === "RUBRIC" && a.fileType === "IMAGE").slice(0, 6)
+          : [];
+      const rubricImgBytes = (
+        await Promise.all(
+          rubricImgAttachments.map(async (a) => {
+            const bytes = await tryReadPublicFileBytes(a.fileUrl);
+            if (!bytes) return null;
+            const m = detectMimeType(bytes);
+            if (!m.startsWith("image/")) return null;
+            return { mimeType: m, bytes };
+          }),
+        )
+      ).filter((x): x is { mimeType: string; bytes: Uint8Array } => Boolean(x));
+      if (rubricImgBytes.length > 0) {
+        const extracted = await extractRubricSectionsFromImages(rubricImgBytes);
+        if (extracted) {
+          extractedRubricText = extracted;
+          // Persistă textul extras pentru a evita re-extragerea la evaluări viitoare.
+          const now = new Date();
+          if (submission.problem) {
+            prisma.problem.update({
+              where: { id: submission.problem.id },
+              data: { extractedRubricText: extracted, extractedRubricTextUpdatedAt: now },
+            }).catch((e: unknown) => console.warn("[grading] nu s-a putut persista extractedRubricText pe Problem:", e));
+          } else if (submission.contestSetProblem) {
+            prisma.contestSetProblem.update({
+              where: { id: submission.contestSetProblem.id },
+              data: { extractedRubricText: extracted, extractedRubricTextUpdatedAt: now },
+            }).catch((e: unknown) => console.warn("[grading] nu s-a putut persista extractedRubricText pe ContestSetProblem:", e));
+          }
+        }
+      }
+    }
+
+    gradingStage = "openai-grading";
+    // Pre-calculăm rawRubricTotal pentru a-l trimite la AI (lucrează la scara corectă a baremului).
+    const rubricTextForGrading = extractedRubricText ?? gradingContext.gradingRubric;
+    const rubricSectionsForGrading = parseRubricSections(rubricTextForGrading);
+    const rawRubricTotalForGrading =
+      rubricSectionsForGrading != null && rubricSectionsForGrading.length > 0
+        ? rubricSectionsForGrading.reduce((s, r) => s + r.maxPoints, 0)
+        : undefined;
+    extractedRubricTextOuter = extractedRubricText;
+    rawRubricTotalOuter = rawRubricTotalForGrading ?? null;
     result = await gradeWithOpenAi({
       problem: {
         statement: gradingContext.statement,
@@ -934,23 +1324,61 @@ export async function gradeSubmission(submissionId: string) {
       imageBytes,
       imageMimeType: mimeType,
       teacherStyle,
+      extractedRubricText,
+      rawRubricTotal: rawRubricTotalForGrading,
       contestMeta: "contestMeta" in gradingContext ? gradingContext.contestMeta : undefined,
       supportingFiles,
       supportingImages,
     });
+    gradingStage = "align-result";
     result = alignReadableGradingResult(result, gradingContext.maxScore, scopedProblemNumber, {
-      gradingRubric: gradingContext.gradingRubric,
+      gradingRubric: extractedRubricText ?? gradingContext.gradingRubric,
       ocrExtractedText: submission.ocrExtractedText,
       strictContestMode: Boolean(submission.contestSetProblem),
-      useImageBasedRubric: hasProblemRubricImages,
-      useImageBasedStatement: hasProblemStatementImages,
+      useImageBasedRubric: hasProblemRubricImages || hasProblemRubricImgs,
+      useImageBasedStatement: hasProblemStatementImages || hasProblemStatementImgs,
     });
   } catch (error) {
+    const problemId = submission.problem?.id ?? null;
+    const contestSetProblemId = submission.contestSetProblem?.id ?? null;
+    const errName = error instanceof Error ? error.constructor.name : typeof error;
+    const errMessage = error instanceof Error ? error.message : String(error);
+    const errStack = error instanceof Error ? (error.stack ?? "") : "";
+
+    // OpenAI SDK
+    const openAiStatus: number | undefined = (error as { status?: number })?.status;
+    const openAiCode: string | undefined = (error as { code?: string })?.code;
+    const openAiType: string | undefined = (error as { type?: string })?.type;
+    const openAiErrorBody: unknown = (error as { error?: unknown })?.error;
+
+    // Prisma — câmpul/modelul/codul problemei
+    const prismaCode: string | undefined = (error as { code?: string })?.code;
+    const prismaMeta: unknown = (error as { meta?: unknown })?.meta;
+    const prismaClientVersion: string | undefined = (error as { clientVersion?: string })?.clientVersion;
+
+    // JSON parse — textul brut dacă eroarea vine din parsare răspuns AI
+    const rawResponseSnippet: string | undefined =
+      errMessage.includes("JSON") || errMessage.includes("parse") || errMessage.includes("token")
+        ? errMessage.slice(0, 500)
+        : undefined;
+
     console.error(
-      "[grading] OpenAI grading failed:",
-      error instanceof Error ? error.message : "unknown error",
-      error,
+      `[grading] FAILED — submissionId=${submission.id} problemId=${problemId ?? contestSetProblemId} stage=${gradingStage}`,
+      {
+        errorName: errName,
+        errorMessage: errMessage,
+        openAiHttpStatus: openAiStatus,
+        openAiCode,
+        openAiType,
+        openAiErrorBody: JSON.stringify(openAiErrorBody).slice(0, 500),
+        prismaCode,
+        prismaMeta: JSON.stringify(prismaMeta).slice(0, 300),
+        prismaClientVersion,
+        rawResponseSnippet,
+        stack: errStack.split("\n").slice(0, 12).join("\n"),
+      },
     );
+
     return prisma.submission.update({
       where: { id: submission.id },
       data: {
@@ -966,7 +1394,7 @@ export async function gradeSubmission(submissionId: string) {
       where: { id: submission.id },
       data: {
         status: "BLURRY_REJECTED",
-        imageQualityReason: result.reason ?? "Image unreadable for grading.",
+        imageQualityReason: sanitizeForDb(result.reason) ?? "Image unreadable for grading.",
         aiScore: null,
         aiFeedback: null,
         aiBreakdown: Prisma.DbNull,
@@ -976,8 +1404,49 @@ export async function gradeSubmission(submissionId: string) {
     });
   }
 
-  const aiScore = clampScore(result.score ?? 0, gradingContext.maxScore || 100);
-  const aiFeedback = `${result.short_feedback ?? ""}\n\n${result.final_feedback ?? ""}`.trim();
+  // rawRubricTotal și extractedRubricText au fost calculați în interiorul try-ului.
+  const rawRubricTotal = rawRubricTotalOuter;
+
+  const finalRows = (result.rubric_breakdown ?? []) as RubricRow[];
+  const expectedSumMax =
+    rawRubricTotal != null && rawRubricTotal > 0 ? rawRubricTotal : gradingContext.maxScore;
+  const validation = validateFinalRubricRows(finalRows, expectedSumMax);
+  if (!validation.valid) {
+    // Assertion hard: salvăm FAILED în loc de date invalide în DB.
+    console.error(
+      `[grading] ASSERTION FAILED înainte de salvare — submissionId=${submission.id}`,
+      { reason: validation.reason, finalRows: JSON.stringify(finalRows).slice(0, 500) },
+    );
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: { status: "FAILED", aiFeedback: "Internal grading error: invalid rubric breakdown.", reviewedAt: new Date() },
+    });
+  }
+  // Scorul final:
+  // - Calea rubricSections: result.score = prettifyDisplayScore(100 * earned / total), deja calculat.
+  // - Calea veche: suma punctelor din rânduri, clampată la maxScore.
+  const aiScore =
+    rawRubricTotal != null && rawRubricTotal > 0
+      ? Math.max(0, Math.min(100, Math.round(result.score ?? 0)))
+      : clampScore(sumBreakdownPoints(finalRows), gradingContext.maxScore || 100);
+  // Assertion
+  const computedSum = sumBreakdownPoints(finalRows);
+  if (rawRubricTotal != null && rawRubricTotal > 0) {
+    if (aiScore < 0 || aiScore > 100) {
+      console.error(
+        `[grading] ASSERTION aiScore out of range — submissionId=${submission.id}`,
+        { aiScore, computedSum, rawRubricTotal },
+      );
+    }
+  } else if (aiScore !== clampScore(computedSum, gradingContext.maxScore || 100) || aiScore > gradingContext.maxScore) {
+    console.error(
+      `[grading] ASSERTION aiScore inconsistent — submissionId=${submission.id}`,
+      { aiScore, computedSum, maxScore: gradingContext.maxScore },
+    );
+  }
+  const aiFeedback = sanitizeForDb(
+    `${result.short_feedback ?? ""}\n\n${result.final_feedback ?? ""}`.trim(),
+  );
 
   return prisma.submission.update({
     where: { id: submission.id },
@@ -985,16 +1454,405 @@ export async function gradeSubmission(submissionId: string) {
       status: "GRADED",
       aiScore,
       aiFeedback,
-      aiBreakdown: {
+      aiBreakdown: sanitizeObjectForDb({
         rubric_breakdown: result.rubric_breakdown,
         detected_strengths: result.detected_strengths,
         detected_mistakes: result.detected_mistakes,
         attempted_subparts: result.attempted_subparts ?? [],
-      },
+      }),
       reviewedAt: new Date(),
       visibilityUnlocked: aiScore >= 90,
       imageQualityReason: null,
     },
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipeline simplu — înlocuitor al gradeSubmission
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function gradeSubmissionSimple(submissionId: string) {
+  const submission = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    include: {
+      problem: {
+        select: {
+          id: true,
+          title: true,
+          maxScore: true,
+          gradingRubric: true,
+          extractedRubricText: true,
+          statement: true,
+          officialSolution: true,
+          attachments: {
+            where: { fileType: "IMAGE", role: { in: ["STATEMENT", "RUBRIC"] } },
+            select: { id: true, fileUrl: true, fileType: true, role: true, sortOrder: true },
+            orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }],
+          },
+        },
+      },
+      contestSetProblem: {
+        select: {
+          id: true,
+          title: true,
+          orderNumber: true,
+          maxScore: true,
+          extractedRubricText: true,
+          aiRubricJson: true,
+          statementTextOverride: true,
+          contestSet: {
+            select: {
+              id: true,
+              title: true,
+              statementPdfUrl: true,
+              rubricPdfUrl: true,
+              rubricText: true,
+              attachments: {
+                select: { id: true, fileUrl: true, fileType: true, role: true, problemOrderNumber: true, sortOrder: true },
+                orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }],
+              },
+            },
+          },
+        },
+      },
+      user: { select: { aiTeacherStyle: true, id: true, username: true } },
+    },
+  });
+
+  if (!submission) throw new Error("Submission not found");
+  if (submission.status !== "PENDING") return submission;
+
+  // ── Citire imagine elev ──────────────────────────────────────────────────
+  const diskPath = imageUrlToDiskPath(submission.imageUrl);
+  let imageBytes: Uint8Array;
+  try {
+    imageBytes = new Uint8Array(await readFile(diskPath));
+  } catch {
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: { status: "FAILED", aiFeedback: "Eroare internă: fișierul imagine lipsește.", reviewedAt: new Date() },
+    });
+  }
+
+  const mimeType = detectMimeType(imageBytes);
+  if (!mimeType.startsWith("image/")) {
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: { status: "FAILED", aiFeedback: "Eroare internă: format imagine nesuportat.", reviewedAt: new Date() },
+    });
+  }
+
+  const extraUrls: string[] = (() => {
+    try { return JSON.parse(submission.extraImageUrls ?? "[]") as string[]; } catch { return []; }
+  })();
+  const extraStudentImages = (
+    await Promise.all(
+      extraUrls.map(async (url) => {
+        const bytes = await tryReadPublicFileBytes(url);
+        if (!bytes) return null;
+        const m = detectMimeType(bytes);
+        if (!m.startsWith("image/")) return null;
+        return { bytes, mimeType: m };
+      }),
+    )
+  ).filter((x): x is { bytes: Uint8Array; mimeType: string } => Boolean(x));
+
+  const studentImages = [{ bytes: imageBytes, mimeType }, ...extraStudentImages];
+
+  // ── Context problemă ────────────────────────────────────────────────────
+  const contestOrder = submission.contestSetProblem?.orderNumber;
+  const contestAttachments = submission.contestSetProblem?.contestSet.attachments ?? [];
+  const problemAttachments = submission.problem?.attachments ?? [];
+
+  const hasProblemRubricImgs = problemAttachments.some((a) => a.role === "RUBRIC");
+  const hasProblemStatementImgs = problemAttachments.some((a) => a.role === "STATEMENT");
+  const hasProblemRubricImages = Boolean(
+    contestOrder &&
+      contestAttachments.some(
+        (a) => a.role === "PROBLEM_RUBRIC" && a.problemOrderNumber === contestOrder && a.fileType === "IMAGE",
+      ),
+  );
+  const hasProblemStatementImages = Boolean(
+    contestOrder &&
+      contestAttachments.some(
+        (a) => a.role === "PROBLEM_STATEMENT" && a.problemOrderNumber === contestOrder && a.fileType === "IMAGE",
+      ),
+  );
+
+  // Text enunț
+  const contestStatementPdfText =
+    submission.contestSetProblem && !hasProblemStatementImages
+      ? await extractPdfTextFromPublicUrl(submission.contestSetProblem.contestSet.statementPdfUrl)
+      : null;
+  const statementSection = submission.contestSetProblem
+    ? extractTargetProblemSection(contestStatementPdfText, submission.contestSetProblem.orderNumber)
+    : null;
+
+  const statement = submission.problem
+    ? hasProblemStatementImgs
+      ? "(Cerința problemei este în imaginile atașate.)"
+      : submission.problem.statement
+    : submission.contestSetProblem
+      ? hasProblemStatementImages
+        ? "(Cerința problemei este în imaginile atașate.)"
+        : safeSlice(
+            statementSection ??
+              submission.contestSetProblem.statementTextOverride ??
+              contestStatementPdfText ??
+              "",
+            12000,
+          )
+      : null;
+
+  if (!statement && statement !== "") {
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: { status: "FAILED", aiFeedback: "Eroare internă: problema sursă lipsește.", reviewedAt: new Date() },
+    });
+  }
+
+  // ── Barem text ──────────────────────────────────────────────────────────
+  const isImageBasedRubric = Boolean(hasProblemRubricImages || hasProblemRubricImgs);
+  const cachedRubricText =
+    submission.problem?.extractedRubricText ?? submission.contestSetProblem?.extractedRubricText ?? null;
+
+  // Imaginile enunțului și baremului — separate pentru pipeline-ul în doi pași
+  const statementImages: Array<{ mimeType: string; bytes: Uint8Array }> = [];
+  const rubricImages: Array<{ mimeType: string; bytes: Uint8Array }> = [];
+  const attachmentsToLoad = submission.contestSetProblem && contestOrder
+    ? contestAttachments.filter(
+        (a) =>
+          a.fileType === "IMAGE" &&
+          a.problemOrderNumber === contestOrder &&
+          (a.role === "PROBLEM_STATEMENT" || a.role === "PROBLEM_RUBRIC"),
+      ).slice(0, 8)
+    : problemAttachments.slice(0, 8);
+
+  for (const a of attachmentsToLoad) {
+    const bytes = await tryReadPublicFileBytes(a.fileUrl);
+    if (!bytes) continue;
+    const m = detectMimeType(bytes);
+    if (!m.startsWith("image/")) continue;
+    if (a.role === "STATEMENT" || a.role === "PROBLEM_STATEMENT") {
+      statementImages.push({ mimeType: m, bytes });
+    } else if (a.role === "RUBRIC" || a.role === "PROBLEM_RUBRIC") {
+      rubricImages.push({ mimeType: m, bytes });
+    }
+  }
+
+  // Extrage text din imaginile baremului (cu cache) — folosit ca fallback text
+  let rubricText: string | null = cachedRubricText;
+  if (isImageBasedRubric && !cachedRubricText) {
+    const rubricImgs = rubricImages;
+    const extracted = rubricImgs.length > 0
+      ? await extractRubricSectionsFromImages(rubricImgs).catch(() => "")
+      : "";
+    if (extracted) {
+      rubricText = extracted;
+      const now = new Date();
+      if (submission.problem) {
+        prisma.problem
+          .update({ where: { id: submission.problem.id }, data: { extractedRubricText: extracted, extractedRubricTextUpdatedAt: now } })
+          .catch(() => {});
+      } else if (submission.contestSetProblem) {
+        prisma.contestSetProblem
+          .update({ where: { id: submission.contestSetProblem.id }, data: { extractedRubricText: extracted, extractedRubricTextUpdatedAt: now } })
+          .catch(() => {});
+      }
+    }
+  }
+
+  // Barem final trimis la AI
+  const contestRubricPdfText =
+    submission.contestSetProblem && !hasProblemRubricImages
+      ? await extractPdfTextFromPublicUrl(submission.contestSetProblem.contestSet.rubricPdfUrl)
+      : null;
+  const contestRubricText = submission.contestSetProblem?.contestSet.rubricText ?? null;
+  const rubricProblemSection = submission.contestSetProblem
+    ? extractTargetProblemSection(contestRubricPdfText, submission.contestSetProblem.orderNumber) ??
+      extractTargetProblemSection(contestRubricText, submission.contestSetProblem.orderNumber)
+    : null;
+
+  const finalRubricText =
+    rubricText ??
+    (submission.problem
+      ? isImageBasedRubric
+        ? "(Baremul este atașat ca imagini — criteriile și punctajele sunt vizibile în imaginile atașate.)"
+        : submission.problem.gradingRubric
+      : submission.contestSetProblem
+        ? hasProblemRubricImages
+          ? "(Baremul este atașat ca imagini — criteriile și punctajele sunt vizibile în imaginile atașate.)"
+          : safeSlice(rubricProblemSection ?? contestRubricText ?? contestRubricPdfText ?? "", 16000)
+        : "");
+
+  if (!finalRubricText) {
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: { status: "FAILED", aiFeedback: "Eroare internă: baremul lipsește.", reviewedAt: new Date() },
+    });
+  }
+
+  // ── Apel AI ─────────────────────────────────────────────────────────────
+  const storedRubricRaw = submission.contestSetProblem?.aiRubricJson ?? null;
+  let preGeneratedRubric: MasterRubric | undefined;
+  if (storedRubricRaw) {
+    try {
+      preGeneratedRubric = JSON.parse(storedRubricRaw) as MasterRubric;
+    } catch { /* ignore parse error, fall back to generating */ }
+  }
+
+  // If no stored rubric for a contest problem, generate one now and persist it so all
+  // future submissions for this problem use identical criteria names and point weights.
+  if (!preGeneratedRubric && submission.contestSetProblem) {
+    try {
+      const autoRubric = await generateMasterRubric({
+        statement: statement ?? "",
+        rubricText: finalRubricText,
+        statementImages,
+        rubricImages,
+      });
+      console.info(
+        `[grading-simple] Auto-generated rubric for contestSetProblem=${submission.contestSetProblem.id} — saving to DB`,
+      );
+      prisma.contestSetProblem
+        .update({ where: { id: submission.contestSetProblem.id }, data: { aiRubricJson: JSON.stringify(autoRubric) } })
+        .catch((e: unknown) => console.warn("[grading-simple] Failed to save auto-generated rubric:", e));
+      preGeneratedRubric = autoRubric;
+    } catch (e) {
+      console.warn("[grading-simple] Auto-rubric generation failed, gradeSimpleWithOpenAi will generate internally:", e);
+    }
+  }
+
+  let aiResult;
+  try {
+    aiResult = await gradeSimpleWithOpenAi({
+      statement: statement ?? "",
+      rubricText: finalRubricText,
+      studentImages,
+      ocrText: submission.ocrExtractedText,
+      statementImages,
+      rubricImages,
+      preGeneratedRubric,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? (err.stack ?? "").split("\n").slice(0, 5).join(" | ") : "";
+    console.error(`[grading-simple] FAILED submissionId=${submission.id} error="${msg}" stack="${stack}"`);
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: { status: "FAILED", aiFeedback: "Eroare internă: corectarea AI a eșuat.", reviewedAt: new Date() },
+    });
+  }
+
+  console.info(
+    `[grading-simple] result submissionId=${submission.id} readability=${aiResult.readability} total_barem=${aiResult.total_barem} puncte_obtinute=${aiResult.puncte_obtinute} criterii=${aiResult.criterii.length}`,
+  );
+
+  // ── Respingere imagine necitibilă ────────────────────────────────────────
+  if (aiResult.readability === "rejected") {
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: {
+        status: "BLURRY_REJECTED",
+        imageQualityReason: sanitizeForDb(aiResult.rejection_reason) ?? "Imagine necitibilă.",
+        aiScore: null,
+        aiFeedback: null,
+        aiBreakdown: Prisma.DbNull,
+        reviewedAt: new Date(),
+        visibilityUnlocked: false,
+      },
+    });
+  }
+
+  // ── Validare minimă ──────────────────────────────────────────────────────
+  const validation = validateSimpleResult(aiResult);
+  if (!validation.valid) {
+    console.error(`[grading-simple] VALIDARE EȘUATĂ — submissionId=${submission.id}`, {
+      reason: validation.reason,
+      total_barem: aiResult.total_barem,
+      puncte_obtinute: aiResult.puncte_obtinute,
+    });
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: { status: "FAILED", aiFeedback: "Eroare internă: date de corectare invalide.", reviewedAt: new Date() },
+    });
+  }
+
+  // ── Scor final ───────────────────────────────────────────────────────────
+  // Scorul este MEREU recalculat în cod, nu luat de la AI.
+  const aiScore = computeSimpleScore(aiResult.puncte_obtinute!, aiResult.total_barem!);
+
+  console.info(
+    `[grading-simple] score submissionId=${submission.id} total_barem=${aiResult.total_barem} puncte_obtinute=${aiResult.puncte_obtinute} scor_procentual=${aiScore}`,
+  );
+
+  // ── Mapare la formatul DB compatibil cu UI ───────────────────────────────
+  const rubricBreakdown = aiResult.criterii.map((c) => ({
+    label: c.label,
+    points: c.puncte_obtinute,
+    maxPoints: c.puncte_maxime,
+    notes: [c.ce_a_fost_corect, c.ce_lipseste_sau_e_gresit].filter(Boolean).join("\n"),
+  }));
+
+  const aiFeedback = sanitizeForDb(
+    [aiResult.feedback_general ?? "", ""].filter(Boolean).join("\n").trim(),
+  );
+
+  const saved = await prisma.submission.update({
+    where: { id: submission.id },
+    data: {
+      status: "GRADED",
+      aiScore,
+      aiFeedback,
+      aiBreakdown: sanitizeObjectForDb({
+        rubric_breakdown: rubricBreakdown,
+        detected_strengths: aiResult.puncte_forte,
+        detected_mistakes: aiResult.de_imbunatatit,
+        attempted_subparts: [],
+      }),
+      reviewedAt: new Date(),
+      visibilityUnlocked: aiScore >= 90,
+      imageQualityReason: null,
+    },
+  });
+
+  // Fire "first-solve" notification only when user reaches ≥70 for the first time on this problem.
+  if (aiScore >= 70 && submission.user) {
+    const problemTitle =
+      submission.problem?.title ??
+      (submission.contestSetProblem
+        ? `Problema ${submission.contestSetProblem.orderNumber} din ${submission.contestSetProblem.contestSet?.title ?? "concurs"}`
+        : "o problemă");
+
+    const priorSolve = await prisma.submission.findFirst({
+      where: {
+        id: { not: submission.id },
+        userId: submission.userId,
+        status: "GRADED",
+        aiScore: { gte: 70 },
+        ...(submission.problemId
+          ? { problemId: submission.problemId }
+          : { contestSetProblemId: submission.contestSetProblemId! }),
+      },
+      select: { id: true },
+    });
+
+    if (!priorSolve) {
+      const targetUrl = submission.problemId
+        ? `/problems/${submission.problemId}`
+        : `/contest-sets/${submission.contestSetProblem!.contestSet!.id}/problems/${submission.contestSetProblem!.orderNumber}`;
+
+      await notifyFollowersOfSubmission({
+        submissionId: submission.id,
+        submitterId: submission.userId,
+        submitterUsername: submission.user.username,
+        problemId: submission.problemId ?? submission.contestSetProblemId ?? submission.id,
+        problemTitle,
+        targetUrl,
+      }).catch(() => {});
+    }
+  }
+
+  return saved;
 }
 

@@ -21,12 +21,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     where: { id, createdById: teacher.id },
     select: { id: true, status: true, publishedAt: true },
   });
-  if (!existing) return jsonError(404, "Problem not found");
+  if (!existing) return jsonError(404, "Problema nu a fost găsită");
 
   const body = await req.json().catch(() => null);
   const parsed = teacherProblemSaveSchema.safeParse(body);
   if (!parsed.success) {
-    return jsonError(400, "Invalid input", { issues: parsed.error.flatten().fieldErrors });
+    return jsonError(400, "Date invalide", { issues: parsed.error.flatten().fieldErrors });
   }
 
   const data = parsed.data;
@@ -36,6 +36,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (nextStatus === ProblemStatus.PUBLISHED) {
     const pubErrs = validateTeacherPublish({ ...data, status: ProblemStatus.PUBLISHED });
     if (pubErrs.length) return jsonError(400, "Cannot publish yet", { errors: pubErrs });
+
+    const baremCount = await prisma.problemAttachment.count({
+      where: { problemId: id, role: "RUBRIC" },
+    });
+    if (baremCount === 0) {
+      return jsonError(400, "Cannot publish yet", { errors: ["Adaugă cel puțin o poză cu baremul."] });
+    }
   }
 
   const normalized = normalizeRubricItems(data.rubricItems);
@@ -102,7 +109,7 @@ export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> 
     where: { id, createdById: teacher.id },
     select: { id: true, status: true },
   });
-  if (!existing) return jsonError(404, "Problem not found");
+  if (!existing) return jsonError(404, "Problema nu a fost găsită");
   if (existing.status !== ProblemStatus.DRAFT) {
     return jsonError(400, "Only drafts can be deleted");
   }

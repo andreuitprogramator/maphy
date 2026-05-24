@@ -1,6 +1,13 @@
 /** Vision-heavy grading: prefer gpt-4o via OPENAI_GRADING_MODEL for best rubric fidelity. */
 export const DEFAULT_AI_GRADING_MODEL = "gpt-4o";
 
+/** Some models reject the temperature parameter entirely (o-series reasoning, gpt-5 family). */
+export function modelSupportsTemperature(model: string): boolean {
+  if (/^o[0-9]/.test(model)) return false;
+  if (/^gpt-5/.test(model)) return false;
+  return true;
+}
+
 export function getAiGradingModel() {
   return process.env.OPENAI_GRADING_MODEL?.trim() || DEFAULT_AI_GRADING_MODEL;
 }

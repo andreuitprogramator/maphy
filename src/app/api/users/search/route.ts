@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const raw = (url.searchParams.get("q") ?? "").trim();
   if (raw.length === 0) return jsonOk({ users: [] });
-  if (raw.length > MAX_Q) return jsonError(400, "Query too long");
+  if (raw.length > MAX_Q) return jsonError(400, "Interogare prea lungă");
 
   const me = await getSessionUser();
 

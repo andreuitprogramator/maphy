@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth/require-user";
 
 export async function POST(_: Request, ctx: { params: Promise<{ id: string }> }) {
   const me = await requireUser();
-  if (!me) return jsonError(401, "Not authenticated");
+  if (!me) return jsonError(401, "Neautentificat");
   const { id } = await ctx.params;
 
   const row = await prisma.notification.findFirst({

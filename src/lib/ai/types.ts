@@ -11,6 +11,7 @@ export const GraderModelResultSchema = z
   .object({
     readability: z.enum(["readable", "rejected"]),
     reason: z.string().nullable(),
+    student_image_observations: z.string().default(""),
     score: z.number().nullable(),
     short_feedback: z.string().nullable(),
     rubric_breakdown: z.array(

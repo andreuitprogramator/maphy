@@ -10,7 +10,6 @@ type CreateNotificationInput = {
   targetUrl?: string | null;
   relatedProblemId?: string | null;
   relatedSubmissionId?: string | null;
-  relatedConversationId?: string | null;
   relatedCommentId?: string | null;
   eventKey?: string | null;
 };
@@ -30,7 +29,6 @@ export async function createNotification(input: CreateNotificationInput) {
         targetUrl: input.targetUrl ?? null,
         relatedProblemId: input.relatedProblemId ?? null,
         relatedSubmissionId: input.relatedSubmissionId ?? null,
-        relatedConversationId: input.relatedConversationId ?? null,
         relatedCommentId: input.relatedCommentId ?? null,
         eventKey: input.eventKey ?? null,
       },
@@ -58,7 +56,6 @@ export async function createManyNotifications(inputs: CreateNotificationInput[])
       targetUrl: x.targetUrl ?? null,
       relatedProblemId: x.relatedProblemId ?? null,
       relatedSubmissionId: x.relatedSubmissionId ?? null,
-      relatedConversationId: x.relatedConversationId ?? null,
       relatedCommentId: x.relatedCommentId ?? null,
       eventKey: x.eventKey ?? null,
     })),
@@ -75,8 +72,8 @@ export async function notifyUserFollowed(args: {
     userId: args.targetUserId,
     actorUserId: args.followerId,
     type: NotificationType.FOLLOWED_YOU,
-    title: "New follower",
-    body: `@${args.followerUsername} followed you.`,
+    title: "Urmăritor nou",
+    body: `@${args.followerUsername} te urmărește acum.`,
     targetUrl: `/u/${args.followerUsername}`,
     eventKey: `follow:${args.followerId}:${args.targetUserId}`,
   });
@@ -88,45 +85,30 @@ export async function notifyFollowersOfSubmission(args: {
   submitterUsername: string;
   problemId: string;
   problemTitle: string;
+  targetUrl?: string;
 }) {
   const followers = await prisma.follow.findMany({
     where: { followingId: args.submitterId },
     select: { followerId: true },
   });
 
+  const url = args.targetUrl ?? `/problems/${args.problemId}`;
+
   return createManyNotifications(
     followers.map((f) => ({
       userId: f.followerId,
       actorUserId: args.submitterId,
       type: NotificationType.FOLLOWING_USER_SUBMITTED,
-      title: "New submission",
-      body: `@${args.submitterUsername} submitted a solution to ${args.problemTitle}.`,
-      targetUrl: `/problems/${args.problemId}`,
+      title: "Rezolvare nouă",
+      body: `@${args.submitterUsername} a rezolvat pentru prima dată problema ${args.problemTitle}.`,
+      targetUrl: url,
       relatedProblemId: args.problemId,
       relatedSubmissionId: args.submissionId,
-      eventKey: `submission:${args.submissionId}:to:${f.followerId}`,
+      eventKey: `first-solve:${args.submitterId}:problem:${args.problemId}`,
     })),
   );
 }
 
-export async function notifyNewDirectMessage(args: {
-  recipientUserId: string;
-  senderUserId: string;
-  senderUsername: string;
-  conversationId: string;
-  messageId: string;
-}) {
-  return createNotification({
-    userId: args.recipientUserId,
-    actorUserId: args.senderUserId,
-    type: NotificationType.NEW_DIRECT_MESSAGE,
-    title: "New message",
-    body: `New message from @${args.senderUsername}.`,
-    targetUrl: `/messages?c=${args.conversationId}`,
-    relatedConversationId: args.conversationId,
-    eventKey: `dm:${args.messageId}:to:${args.recipientUserId}`,
-  });
-}
 
 export async function notifyUsersNewProblemPublished(args: {
   problemId: string;
@@ -140,8 +122,8 @@ export async function notifyUsersNewProblemPublished(args: {
       userId: u.id,
       actorUserId: args.publisherUserId,
       type: NotificationType.NEW_PROBLEM_PUBLISHED,
-      title: "New problem published",
-      body: `@${args.publisherUsername} published: ${args.problemTitle}.`,
+      title: "Problemă nouă publicată",
+      body: `@${args.publisherUsername} a publicat: ${args.problemTitle}.`,
       targetUrl: `/problems/${args.problemId}`,
       relatedProblemId: args.problemId,
       eventKey: `problem:${args.problemId}:to:${u.id}`,

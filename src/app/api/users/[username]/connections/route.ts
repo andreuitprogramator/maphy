@@ -10,7 +10,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ username: strin
   }
 
   const user = await prisma.user.findUnique({ where: { username }, select: { id: true } });
-  if (!user) return jsonError(404, "User not found");
+  if (!user) return jsonError(404, "Utilizatorul nu a fost găsit");
 
   const me = await getSessionUser();
 

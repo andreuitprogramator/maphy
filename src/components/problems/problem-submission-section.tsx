@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   type ProblemSubmissionSerializable,
   type PublicSubmissionSerializable,
@@ -22,6 +23,7 @@ function toSerializableFromApi(row: {
   reviewedAt: string | Date | null;
   createdAt: string | Date;
   imageUrl: string;
+  extraImageUrls?: string | null;
   user: { username: string; avatarUrl?: string | null };
 }): ProblemSubmissionSerializable {
   return {
@@ -38,6 +40,7 @@ function toSerializableFromApi(row: {
       : null,
     createdAt: typeof row.createdAt === "string" ? row.createdAt : row.createdAt.toISOString(),
     imageUrl: row.imageUrl,
+    extraImageUrls: row.extraImageUrls ?? null,
     user: { username: row.user.username, avatarUrl: row.user.avatarUrl ?? null },
   };
 }
@@ -75,6 +78,7 @@ export function ProblemSubmissionSection({
   const [allItems, setAllItems] = React.useState<PublicSubmissionSerializable[]>(initialAllSubmissions);
   const [viewerUnlockedPeerImages, setViewerUnlockedPeerImages] = React.useState(initialViewerUnlockedPeerImages);
   const [tab, setTab] = React.useState<"mine" | "all">(loggedIn ? "mine" : "all");
+  const router = useRouter();
 
   React.useEffect(() => {
     setMyItems(initialMySubmissions);
@@ -126,10 +130,13 @@ export function ProblemSubmissionSection({
           return merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         });
         void fetchAllSubmissions();
-        if (updated.status !== "PENDING") stopPoll();
+        if (updated.status !== "PENDING") {
+          stopPoll();
+          router.refresh();
+        }
       }, 1600);
     },
-    [problemId, contestSetProblemId, stopPoll, fetchAllSubmissions],
+    [problemId, contestSetProblemId, stopPoll, fetchAllSubmissions, router],
   );
 
   React.useEffect(() => () => stopPoll(), [stopPoll]);
@@ -146,6 +153,7 @@ export function ProblemSubmissionSection({
       reviewedAt: null,
       createdAt: new Date().toISOString(),
       imageUrl: "",
+      extraImageUrls: null,
       user: { username: currentUsername, avatarUrl: null },
     };
     setMyItems((prev) => [optimistic, ...prev.filter((s) => !s.id.startsWith("optimistic-"))]);
@@ -176,17 +184,17 @@ export function ProblemSubmissionSection({
     <>
       <Card>
         <CardHeader>
-          <div className="text-sm font-medium text-zinc-900">Submit your solution (photo)</div>
+          <div className="text-sm font-medium text-zinc-900">Trimite rezolvarea ta (foto)</div>
           {!loggedIn ? (
             <div className="text-sm text-zinc-600">
-              You need to{" "}
+              Trebuie să te{" "}
               <Link className="text-[color:var(--accent)] hover:underline" href="/login">
-                log in
+                autentifici
               </Link>{" "}
-              to submit.
+              pentru a trimite.
             </div>
           ) : (
-            <div className="text-sm text-zinc-600">Submitting as @{currentUsername}.</div>
+            <div className="text-sm text-zinc-600">Trimiți ca @{currentUsername}.</div>
           )}
         </CardHeader>
         <CardContent>
@@ -203,7 +211,7 @@ export function ProblemSubmissionSection({
 
       <Card>
         <CardHeader>
-          <div className="text-sm font-medium text-zinc-900">Submissions</div>
+          <div className="text-sm font-medium text-zinc-900">Rezolvări</div>
           <div className="inline-flex rounded-xl border border-zinc-200 p-1">
             {loggedIn ? (
               <button
@@ -211,7 +219,7 @@ export function ProblemSubmissionSection({
                 onClick={() => setTab("mine")}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium ${tab === "mine" ? "bg-zinc-900 text-white" : "text-zinc-700"}`}
               >
-                My submissions
+                Rezolvările mele
               </button>
             ) : null}
             <button
@@ -219,25 +227,24 @@ export function ProblemSubmissionSection({
               onClick={() => setTab("all")}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium ${tab === "all" ? "bg-zinc-900 text-white" : "text-zinc-700"}`}
             >
-              All submissions
+              Toate rezolvările
             </button>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4">
           {tab === "mine" ? (
             myItems.length === 0 ? (
-              <div className="text-sm text-zinc-600">You have no submissions yet.</div>
+              <div className="text-sm text-zinc-600">Nu ai trimis nicio rezolvare încă.</div>
             ) : (
               myItems.map((s) => <SubmissionCard key={s.id} row={s} />)
             )
           ) : allItems.length === 0 ? (
-            <div className="text-sm text-zinc-600">No submissions yet. Be the first.</div>
+            <div className="text-sm text-zinc-600">Nicio rezolvare încă. Fii primul.</div>
           ) : (
             <>
               {!viewerUnlockedPeerImages ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                  Score at least {PEER_SOLUTION_IMAGE_UNLOCK_MIN_SCORE}/100 on this problem to unlock other users&apos;
-                  solution images.
+                  Obține cel puțin {PEER_SOLUTION_IMAGE_UNLOCK_MIN_SCORE}/100 la această problemă pentru a debloca imaginile cu rezolvările altor utilizatori.
                 </div>
               ) : null}
               {allItems.map((s) => (

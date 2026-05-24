@@ -43,6 +43,7 @@ export default async function EditTeacherProblemPage({ params }: { params: Promi
       mimeType: a.mimeType,
       originalName: a.originalName,
       caption: a.caption ?? "",
+      role: a.role ?? "OTHER",
       uploadedAt: a.uploadedAt.toISOString(),
     })),
   };

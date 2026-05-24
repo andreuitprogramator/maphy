@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 
 type NotificationRow = {
   id: string;
-  type: "FOLLOWED_YOU" | "FOLLOWING_USER_SUBMITTED" | "NEW_DIRECT_MESSAGE" | "NEW_PROBLEM_PUBLISHED";
+  type: "FOLLOWED_YOU" | "FOLLOWING_USER_SUBMITTED" | "NEW_PROBLEM_PUBLISHED";
   title: string;
   body: string;
   isRead: boolean;
@@ -19,13 +19,13 @@ type NotificationRow = {
 function relativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const sec = Math.max(1, Math.floor(ms / 1000));
-  if (sec < 60) return `${sec}s ago`;
+  if (sec < 60) return `acum ${sec}s`;
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return `acum ${min}m`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return `acum ${hr}h`;
   const d = Math.floor(hr / 24);
-  if (d < 7) return `${d}d ago`;
+  if (d < 7) return `acum ${d}z`;
   return new Date(iso).toLocaleDateString();
 }
 
@@ -76,16 +76,16 @@ export function NotificationsList({
     <div className="grid gap-3">
       <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2">
         <div className="text-sm text-zinc-700">
-          Unread: <span className="font-semibold text-zinc-900">{unreadCount}</span>
+          Necitite: <span className="font-semibold text-zinc-900">{unreadCount}</span>
         </div>
         <Button type="button" variant="secondary" size="sm" disabled={pendingAll || unreadCount === 0} onClick={markAllRead}>
-          Mark all as read
+          Marchează toate ca citite
         </Button>
       </div>
 
       {rows.length === 0 ? (
         <div className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500">
-          No notifications yet.
+          Nicio notificare încă.
         </div>
       ) : (
         <div className="grid gap-2">

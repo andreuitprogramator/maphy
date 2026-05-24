@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth/require-user";
 
 export async function GET() {
   const me = await requireUser();
-  if (!me) return jsonError(401, "Not authenticated");
+  if (!me) return jsonError(401, "Neautentificat");
 
   const unreadCount = await prisma.notification.count({
     where: { userId: me.id, isRead: false },

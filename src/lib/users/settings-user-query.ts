@@ -15,6 +15,7 @@ export const settingsUserBaseSelect = {
   avatarUrl: true,
   preferredLanguage: true,
   roleLabel: true,
+  usernameChangedAt: true,
   createdAt: true,
 } as const;
 

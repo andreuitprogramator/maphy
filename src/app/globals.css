@@ -1,10 +1,144 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
+
+.logo-light { display: block; }
+.logo-dark  { display: none;  }
+html.dark .logo-light { display: none;  }
+html.dark .logo-dark  { display: block; }
 
 :root {
   --bg: #fbfbfd;
   --surface: #ffffff;
   --accent: #2563eb; /* blue-600 */
   --accent-2: #1d4ed8; /* blue-700 */
+  --heatmap-empty-bg: #ffffff;
+  --heatmap-empty-border: #e4e4e7;
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────────── */
+/* html.dark has specificity 0-1-1, beats :root (0-1-0) so variables win.     */
+
+html.dark {
+  color-scheme: dark;
+  --heatmap-empty-bg: #2a3044;
+  --heatmap-empty-border: #0f1117;
+
+  --bg: #0f1117;
+  --surface: #161b25;
+  --accent: #3b82f6;
+  --accent-2: #2563eb;
+
+  /* Override Tailwind v4 color tokens (referenced via var() in utilities) */
+  --color-white: #161b25;
+  --color-zinc-50:  #0f1117;
+  --color-zinc-100: #161b25;
+  --color-zinc-200: #1e2433;
+  --color-zinc-300: #2d3548;
+  --color-zinc-400: #4a5568;
+  --color-zinc-500: #718096;
+  --color-zinc-600: #9aa8c0;
+  --color-zinc-700: #c0cce0;
+  --color-zinc-800: #d8e2f0;
+  --color-zinc-900: #e8f0f8;
+  --color-zinc-950: #f2f7fc;
+}
+
+/* Explicit element overrides — guaranteed to work even if Tailwind inlines values */
+html.dark body {
+  background-color: #0f1117;
+  color: #e8f0f8;
+}
+
+html.dark header {
+  background-color: rgba(22, 27, 37, 0.85) !important;
+  border-bottom-color: #1e2433 !important;
+}
+
+html.dark footer {
+  background-color: #161b25 !important;
+  border-top-color: #1e2433 !important;
+  color: #9aa8c0;
+}
+
+/* Cards / surfaces */
+html.dark .bg-white    { background-color: #161b25 !important; }
+html.dark .bg-zinc-50  { background-color: #0f1117 !important; }
+html.dark .bg-zinc-100 { background-color: #161b25 !important; }
+html.dark .bg-zinc-200 { background-color: #1e2433 !important; }
+
+/* Borders */
+html.dark .border-zinc-100 { border-color: #161b25 !important; }
+html.dark .border-zinc-200 { border-color: #1e2433 !important; }
+html.dark .border-zinc-300 { border-color: #2d3548 !important; }
+
+/* Text */
+html.dark .text-zinc-900 { color: #e8f0f8 !important; }
+html.dark .text-zinc-800 { color: #d8e2f0 !important; }
+html.dark .text-zinc-700 { color: #c0cce0 !important; }
+html.dark .text-zinc-600 { color: #9aa8c0 !important; }
+html.dark .text-zinc-500 { color: #718096 !important; }
+html.dark .text-zinc-400 { color: #4a5568 !important; }
+
+/* Hover states (colon must be escaped in CSS) */
+html.dark .hover\:bg-zinc-100:hover  { background-color: #1e2433 !important; }
+html.dark .hover\:bg-zinc-50:hover   { background-color: #161b25 !important; }
+html.dark .hover\:border-zinc-300:hover { border-color: #2d3548 !important; }
+html.dark .hover\:text-zinc-900:hover   { color: #e8f0f8 !important; }
+
+/* Colored badge/chip overrides */
+html.dark .bg-emerald-50  { background-color: rgba(6, 78, 59, 0.25) !important; }
+html.dark .bg-emerald-100 { background-color: rgba(6, 78, 59, 0.35) !important; }
+html.dark .text-emerald-900 { color: #6ee7b7 !important; }
+html.dark .text-emerald-800 { color: #34d399 !important; }
+html.dark .text-emerald-700 { color: #10b981 !important; }
+
+html.dark .bg-amber-100  { background-color: rgba(120, 53, 15, 0.35) !important; }
+html.dark .bg-amber-50   { background-color: rgba(120, 53, 15, 0.20) !important; }
+html.dark .text-amber-800 { color: #fbbf24 !important; }
+html.dark .text-amber-700 { color: #f59e0b !important; }
+html.dark .text-amber-900 { color: #fcd34d !important; }
+
+html.dark .bg-blue-100  { background-color: rgba(30, 64, 175, 0.30) !important; }
+html.dark .bg-blue-50   { background-color: rgba(30, 64, 175, 0.15) !important; }
+html.dark .text-blue-800 { color: #93c5fd !important; }
+html.dark .text-blue-700 { color: #60a5fa !important; }
+html.dark .text-blue-900 { color: #bfdbfe !important; }
+
+html.dark .bg-violet-100 { background-color: rgba(91, 33, 182, 0.30) !important; }
+html.dark .bg-violet-50  { background-color: rgba(91, 33, 182, 0.15) !important; }
+html.dark .text-violet-800 { color: #c4b5fd !important; }
+html.dark .text-violet-700 { color: #a78bfa !important; }
+html.dark .text-violet-900 { color: #ddd6fe !important; }
+
+html.dark .bg-rose-100  { background-color: rgba(159, 18, 57, 0.30) !important; }
+html.dark .bg-rose-50   { background-color: rgba(159, 18, 57, 0.15) !important; }
+html.dark .text-rose-800 { color: #fda4af !important; }
+html.dark .text-rose-700 { color: #fb7185 !important; }
+html.dark .text-rose-900 { color: #fecdd3 !important; }
+
+html.dark .bg-sky-100  { background-color: rgba(12, 74, 110, 0.30) !important; }
+html.dark .bg-sky-50   { background-color: rgba(12, 74, 110, 0.15) !important; }
+html.dark .text-sky-800 { color: #7dd3fc !important; }
+html.dark .text-sky-700 { color: #38bdf8 !important; }
+html.dark .text-sky-900 { color: #bae6fd !important; }
+
+/* Shadow — more visible on dark */
+html.dark .shadow-sm {
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.5), 0 1px 2px -1px rgba(0,0,0,0.4) !important;
+}
+
+/* bg-white with opacity (navbar) */
+html.dark .bg-white\/80  { background-color: rgba(22, 27, 37, 0.8)  !important; }
+html.dark .bg-zinc-50\/80 { background-color: rgba(15, 17, 23, 0.8) !important; }
+
+/* Smooth transition when toggling */
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition: background-color 200ms ease, border-color 200ms ease,
+              color 200ms ease, box-shadow 200ms ease !important;
+  transition-delay: 0ms !important;
 }
 
 @theme inline {

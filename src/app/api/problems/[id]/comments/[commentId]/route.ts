@@ -77,7 +77,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; c
       user: { select: { username: true, avatarUrl: true, roleLabel: true } },
     },
   });
-  if (!row) return jsonError(404, "Comment not found");
+  if (!row) return jsonError(404, "Comentariul nu a fost găsit");
   if (row.userId !== me.id) return jsonError(403, "You can edit only your own comments");
 
   const payload = await readPatchPayload(req);
@@ -224,7 +224,7 @@ export async function DELETE(_: Request, ctx: { params: Promise<{ id: string; co
     where: { id: commentId, problemId: id },
     select: { id: true, userId: true },
   });
-  if (!row) return jsonError(404, "Comment not found");
+  if (!row) return jsonError(404, "Comentariul nu a fost găsit");
   if (row.userId !== me.id) return jsonError(403, "You can delete only your own comments");
 
   await prisma.comment.delete({ where: { id: row.id } });

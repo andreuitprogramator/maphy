@@ -38,7 +38,7 @@ export function ProblemRatingPanel({
 
   async function save() {
     if (draft == null) {
-      setError("Pick a rating first.");
+      setError("Selectează mai întâi o evaluare.");
       return;
     }
     setError(null);
@@ -52,10 +52,10 @@ export function ProblemRatingPanel({
     setPending(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error ?? "Could not save rating");
+      setError(data?.error ?? "Nu s-a putut salva evaluarea");
       return;
     }
-    setOk(initialMyRating == null ? "Saved." : "Updated.");
+    setOk(initialMyRating == null ? "Salvat." : "Actualizat.");
     if (typeof data.ratingAvg === "number" || data.ratingAvg === null) setAvg(data.ratingAvg);
     if (typeof data.ratingCount === "number") setCount(data.ratingCount);
     router.refresh();
@@ -64,23 +64,23 @@ export function ProblemRatingPanel({
   return (
     <div className="self-start grid w-full max-w-md gap-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <div className="text-sm font-medium text-zinc-900">Problem rating</div>
+        <div className="text-sm font-medium text-zinc-900">Evaluează problema</div>
         <div className="text-sm text-zinc-600">
           {avg != null ? (
             <>
-              Avg <span className="font-semibold tabular-nums text-zinc-900">{avg.toFixed(1)}</span> /{" "}
+              Medie <span className="font-semibold tabular-nums text-zinc-900">{avg.toFixed(1)}</span> /{" "}
               {RATING_MAX}
             </>
           ) : (
-            <span>No ratings yet</span>
+            <span>Fără evaluări</span>
           )}
-          <span className="text-zinc-500"> · {count} rating{count === 1 ? "" : "s"}</span>
+          <span className="text-zinc-500"> · {count} {count === 1 ? "evaluare" : "evaluări"}</span>
         </div>
       </div>
 
       {!canRate ? (
         <p className="text-sm leading-snug text-zinc-600">
-          Get a perfect score (100) on this problem to rate it.
+          Obține un scor perfect (100) la această problemă pentru a o evalua.
         </p>
       ) : (
         <div className="grid gap-2">
@@ -94,7 +94,7 @@ export function ProblemRatingPanel({
           />
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Button type="button" size="sm" disabled={pending || draft == null} onClick={save}>
-              {pending ? "Saving…" : initialMyRating == null ? "Save rating" : "Update rating"}
+              {pending ? "Se salvează…" : initialMyRating == null ? "Salvează evaluarea" : "Actualizează evaluarea"}
             </Button>
             {error ? <span className="text-xs text-red-600">{error}</span> : null}
             {ok ? <span className="text-xs text-emerald-700">{ok}</span> : null}

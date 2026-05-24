@@ -14,19 +14,19 @@ export type ProblemSortId =
   | "my_best_desc";
 
 export const PROBLEM_SORT_OPTIONS: { id: ProblemSortId; label: string }[] = [
-  { id: "year_desc", label: "Newest year first" },
-  { id: "year_asc", label: "Oldest year first" },
-  { id: "difficulty_asc", label: "Easiest first" },
-  { id: "difficulty_desc", label: "Hardest first" },
-  { id: "submissions_desc", label: "Most submissions" },
-  { id: "submissions_asc", label: "Fewest submissions" },
-  { id: "rating_desc", label: "Highest rated" },
-  { id: "rating_asc", label: "Lowest rated" },
-  { id: "ratings_count_desc", label: "Most ratings" },
-  { id: "title_asc", label: "Title A–Z" },
-  { id: "title_desc", label: "Title Z–A" },
-  { id: "my_submissions_desc", label: "Most attempted by me" },
-  { id: "my_best_desc", label: "My best score (high first)" },
+  { id: "year_desc", label: "An (nou→vechi)" },
+  { id: "year_asc", label: "An (vechi→nou)" },
+  { id: "difficulty_asc", label: "Dificultate (ușor→greu)" },
+  { id: "difficulty_desc", label: "Dificultate (greu→ușor)" },
+  { id: "submissions_desc", label: "Cele mai rezolvate" },
+  { id: "submissions_asc", label: "Cele mai puțin rezolvate" },
+  { id: "rating_desc", label: "Cel mai bine evaluat" },
+  { id: "rating_asc", label: "Cel mai slab evaluat" },
+  { id: "ratings_count_desc", label: "Cele mai evaluate" },
+  { id: "title_asc", label: "Titlu A–Z" },
+  { id: "title_desc", label: "Titlu Z–A" },
+  { id: "my_submissions_desc", label: "Cele mai încercate de mine" },
+  { id: "my_best_desc", label: "Cel mai bun scor al meu" },
 ];
 
 const ALLOWED = new Set<ProblemSortId>(PROBLEM_SORT_OPTIONS.map((o) => o.id));

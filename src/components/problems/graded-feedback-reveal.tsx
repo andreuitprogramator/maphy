@@ -7,6 +7,7 @@ import {
   parseFeedbackBreakdown,
   type FeedbackBreakdownShape,
 } from "@/lib/problems/feedback-breakdown";
+import { LatexText } from "@/components/ui/latex-text";
 
 function FeedbackBody({
   full,
@@ -19,20 +20,20 @@ function FeedbackBody({
     <div className="space-y-4">
       {full ? (
         <div>
-          <div className="text-xs font-semibold text-zinc-700">Written feedback</div>
-          <div className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-800">
-            {full}
+          <div className="text-xs font-semibold text-zinc-700">Feedback scris</div>
+          <div className="mt-1.5 break-words text-sm leading-relaxed text-zinc-800">
+            <LatexText>{full}</LatexText>
           </div>
         </div>
       ) : null}
 
       {breakdown?.detected_strengths && breakdown.detected_strengths.length > 0 ? (
         <div className="text-sm">
-          <div className="text-xs font-semibold text-zinc-700">Strengths</div>
+          <div className="text-xs font-semibold text-zinc-700">Puncte forte</div>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-zinc-700">
             {breakdown.detected_strengths.map((s, i) => (
               <li key={i} className="break-words">
-                {s}
+                <LatexText>{s}</LatexText>
               </li>
             ))}
           </ul>
@@ -41,11 +42,11 @@ function FeedbackBody({
 
       {breakdown?.detected_mistakes && breakdown.detected_mistakes.length > 0 ? (
         <div className="text-sm">
-          <div className="text-xs font-semibold text-zinc-700">Areas to improve</div>
+          <div className="text-xs font-semibold text-zinc-700">De îmbunătățit</div>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-zinc-700">
             {breakdown.detected_mistakes.map((s, i) => (
               <li key={i} className="break-words">
-                {s}
+                <LatexText>{s}</LatexText>
               </li>
             ))}
           </ul>
@@ -54,18 +55,18 @@ function FeedbackBody({
 
       {breakdown?.rubric_breakdown && breakdown.rubric_breakdown.length > 0 ? (
         <div className="text-sm">
-          <div className="text-xs font-semibold text-zinc-700">Rubric breakdown</div>
+          <div className="text-xs font-semibold text-zinc-700">Detalii barem</div>
           <ul className="mt-2 space-y-2">
             {breakdown.rubric_breakdown.map((row, i) => (
               <li key={i} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-medium text-zinc-900">{row.label}</span>
+                  <span className="font-medium text-zinc-900"><LatexText>{row.label}</LatexText></span>
                   <span className="text-xs tabular-nums text-zinc-600">
                     {row.points} / {row.maxPoints}
                   </span>
                 </div>
                 {row.notes ? (
-                  <p className="mt-1 break-words text-xs text-zinc-600 whitespace-pre-wrap">{row.notes}</p>
+                  <p className="mt-1 break-words text-xs text-zinc-600"><LatexText>{row.notes}</LatexText></p>
                 ) : null}
               </li>
             ))}
@@ -87,11 +88,7 @@ type Props = {
 };
 
 export function GradedFeedbackReveal({ aiFeedback, aiBreakdown, aiScore, hint, className }: Props) {
-  const showOpen = aiScore === 100;
-  const [open, setOpen] = React.useState(showOpen);
-  React.useEffect(() => {
-    if (showOpen) setOpen(true);
-  }, [showOpen]);
+  const [open, setOpen] = React.useState(false);
 
   const breakdown = parseFeedbackBreakdown(aiBreakdown);
   const full = (aiFeedback ?? "").trim();
@@ -104,24 +101,8 @@ export function GradedFeedbackReveal({ aiFeedback, aiBreakdown, aiScore, hint, c
   if (!hasBody) {
     return (
       <p className={cn("mt-2 text-sm text-zinc-600", className)}>
-        No detailed AI feedback stored for this submission.
+        Niciun feedback AI detaliat stocat pentru această rezolvare.
       </p>
-    );
-  }
-
-  if (showOpen) {
-    return (
-      <div
-        className={cn(
-          "mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 sm:p-4",
-          className,
-        )}
-      >
-        <div className="text-sm font-semibold text-emerald-900">Perfect score — full AI feedback</div>
-        <div className="mt-3 space-y-4">
-          <FeedbackBody full={full} breakdown={breakdown} />
-        </div>
-      </div>
     );
   }
 
@@ -136,7 +117,7 @@ export function GradedFeedbackReveal({ aiFeedback, aiBreakdown, aiScore, hint, c
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        {open ? "Hide AI explanation" : "Reveal AI explanation"}
+        {open ? "Ascunde explicația AI" : "Arată explicația AI"}
       </Button>
 
       <div
@@ -147,7 +128,7 @@ export function GradedFeedbackReveal({ aiFeedback, aiBreakdown, aiScore, hint, c
       >
         <div className="min-h-0 overflow-hidden">
           <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 sm:mt-0 sm:p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">AI explanation</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Explicație AI</div>
             <div className="mt-3 border-t border-zinc-200 pt-3">
               <FeedbackBody full={full} breakdown={breakdown} />
             </div>

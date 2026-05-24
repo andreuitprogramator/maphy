@@ -32,7 +32,7 @@ export function NavbarNotificationsLink({ initialUnreadCount }: Props) {
 
   return (
     <Link className="px-3 py-2 text-sm text-zinc-700 hover:text-zinc-900" href="/notifications">
-      Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
+      Notificări{unreadCount > 0 ? ` (${unreadCount})` : ""}
     </Link>
   );
 }

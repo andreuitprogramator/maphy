@@ -21,10 +21,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!contestSet) return jsonError(404, "Contest set not found");
 
   const form = await req.formData().catch(() => null);
-  if (!form) return jsonError(400, "Invalid form data");
+  if (!form) return jsonError(400, "Date formular invalide");
 
   const role = String(form.get("role") ?? "SUPPORTING").toUpperCase();
-  if (!["STATEMENT", "RUBRIC", "SUPPORTING", "PROBLEM_STATEMENT", "PROBLEM_RUBRIC"].includes(role)) {
+  if (!["STATEMENT", "RUBRIC", "LEADERBOARD", "SUPPORTING", "PROBLEM_STATEMENT", "PROBLEM_RUBRIC"].includes(role)) {
     return jsonError(400, "Invalid role");
   }
   const problemOrderNumberRaw = form.get("problemOrderNumber");
@@ -90,6 +90,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (role === "RUBRIC" && fileType === "PDF") {
     await prisma.contestSet.update({ where: { id }, data: { rubricPdfUrl: attachment.fileUrl } });
   }
+  if (role === "LEADERBOARD" && fileType === "PDF") {
+    await prisma.contestSet.update({ where: { id }, data: { leaderboardPdfUrl: attachment.fileUrl } });
+  }
 
   return jsonOk({ attachment }, { status: 201 });
 }
@@ -111,6 +114,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     await prisma.contestSetAttachment.delete({ where: { id: deleted.id } });
     if (deleted.role === "STATEMENT") await prisma.contestSet.update({ where: { id }, data: { statementPdfUrl: null } });
     if (deleted.role === "RUBRIC") await prisma.contestSet.update({ where: { id }, data: { rubricPdfUrl: null } });
+    if (deleted.role === "LEADERBOARD") await prisma.contestSet.update({ where: { id }, data: { leaderboardPdfUrl: null } });
   }
 
   return jsonOk({ ok: true });

@@ -15,7 +15,7 @@ export async function assessImageQuality(imageUrl: string): Promise<ImageQuality
   const buf = await readFile(diskPath);
 
   if (buf.byteLength < 25_000) {
-    return { ok: false, reason: "Image too small / likely unreadable. Please upload a clearer photo." };
+    return { ok: false, reason: "Imaginea este prea mică / probabil ilizibilă. Te rugăm să încarci o fotografie mai clară." };
   }
 
   // Very basic file signature checks (avoid grading non-images).
@@ -23,7 +23,7 @@ export async function assessImageQuality(imageUrl: string): Promise<ImageQuality
   const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
   const isWebp = buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46;
   if (!isPng && !isJpeg && !isWebp) {
-    return { ok: false, reason: "Unsupported or corrupted image. Please re-upload." };
+    return { ok: false, reason: "Imagine nesuportată sau coruptă. Te rugăm să reincarci." };
   }
 
   return { ok: true };

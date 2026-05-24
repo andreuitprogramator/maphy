@@ -15,5 +15,5 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const next =
     typeof raw === "string" && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/problems";
 
-  return <LoginClient nextHref={next} />;
+  return <LoginClient nextHref={next} resetDone={getFirst(sp, "reset") === "1"} />;
 }

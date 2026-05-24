@@ -26,13 +26,14 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
           mimeType: true,
           originalName: true,
           caption: true,
+          role: true,
           sortOrder: true,
           uploadedAt: true,
         },
       },
     },
   });
-  if (!problem) return jsonError(404, "Problem not found");
+  if (!problem) return jsonError(404, "Problema nu a fost găsită");
   return jsonOk({ attachments: problem.attachments });
 }
 
@@ -45,10 +46,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     where: { id, createdById: teacher.id },
     select: { id: true },
   });
-  if (!problem) return jsonError(404, "Problem not found");
+  if (!problem) return jsonError(404, "Problema nu a fost găsită");
 
   const form = await req.formData().catch(() => null);
-  if (!form) return jsonError(400, "Invalid form data");
+  if (!form) return jsonError(400, "Date formular invalide");
   const file = form.get("file");
   if (!(file instanceof File)) return jsonError(400, "Missing file");
 
@@ -69,6 +70,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     _max: { sortOrder: true },
   });
 
+  const rawRole = String(form.get("role") ?? "OTHER");
+  const role = ["STATEMENT", "RUBRIC", "OTHER"].includes(rawRole) ? rawRole : "OTHER";
+
   const created = await prisma.problemAttachment.create({
     data: {
       problemId: id,
@@ -77,6 +81,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       mimeType: file.type || (fileType === "PDF" ? "application/pdf" : "image/*"),
       originalName: file.name || "attachment",
       caption: String(form.get("caption") ?? "").slice(0, 2000),
+      role,
       sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
     },
     select: {
@@ -86,6 +91,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       mimeType: true,
       originalName: true,
       caption: true,
+      role: true,
       sortOrder: true,
       uploadedAt: true,
     },
@@ -107,7 +113,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     where: { id, createdById: teacher.id },
     select: { id: true },
   });
-  if (!own) return jsonError(404, "Problem not found");
+  if (!own) return jsonError(404, "Problema nu a fost găsită");
 
   await prisma.problemAttachment.deleteMany({
     where: { id: attachmentId, problemId: id },

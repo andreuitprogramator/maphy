@@ -4,38 +4,38 @@ import { AiTeacherStyle, UserRole } from "@prisma/client";
 export const usernameSchema = z
   .string()
   .trim()
-  .min(3, "Username must be at least 3 characters")
-  .max(24, "Username must be at most 24 characters")
-  .regex(/^[a-zA-Z0-9_]+$/, "Only letters, numbers, and underscores");
+  .min(3, "Numele de utilizator trebuie să aibă cel puțin 3 caractere")
+  .max(24, "Numele de utilizator trebuie să aibă cel mult 24 de caractere")
+  .regex(/^[a-zA-Z0-9_]+$/, "Doar litere, cifre și underscore");
 
 export const registerBodySchema = z
   .object({
     username: usernameSchema,
-    email: z.string().trim().email("Invalid email"),
-    password: z.string().min(8, "Password must be at least 8 characters").max(72, "Password is too long"),
-    confirmPassword: z.string().min(1, "Confirm your password"),
+    email: z.string().trim().email("Email invalid"),
+    password: z.string().min(8, "Parola trebuie să aibă cel puțin 8 caractere").max(72, "Parola este prea lungă"),
+    confirmPassword: z.string().min(1, "Confirmă parola"),
     firstName: z
       .string()
       .trim()
-      .min(1, "First name is required")
-      .max(64, "First name is too long"),
+      .min(1, "Prenumele este obligatoriu")
+      .max(64, "Prenumele este prea lung"),
     lastName: z
       .string()
       .trim()
-      .min(1, "Last name is required")
-      .max(64, "Last name is too long"),
+      .min(1, "Numele de familie este obligatoriu")
+      .max(64, "Numele de familie este prea lung"),
     country: z.string().trim().max(80).optional(),
     city: z.string().trim().max(80).optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
-    message: "Passwords do not match",
+    message: "Parolele nu coincid",
     path: ["confirmPassword"],
   });
 
 export const profilePatchSchema = z.object({
   username: usernameSchema,
-  firstName: z.string().trim().min(1, "First name is required").max(64),
-  lastName: z.string().trim().min(1, "Last name is required").max(64),
+  firstName: z.string().trim().min(1, "Prenumele este obligatoriu").max(64),
+  lastName: z.string().trim().min(1, "Numele de familie este obligatoriu").max(64),
   bio: z.string().max(5000),
   country: z.string().max(80),
   city: z.string().max(80),

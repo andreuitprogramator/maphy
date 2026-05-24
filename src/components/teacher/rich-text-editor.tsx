@@ -9,15 +9,15 @@ import { cn } from "@/lib/cn";
 
 const SYMBOL_PALETTES: { label: string; symbols: string[] }[] = [
   {
-    label: "Greek",
+    label: "Grecesc",
     symbols: ["α", "β", "γ", "δ", "ε", "θ", "λ", "μ", "σ", "φ", "ω", "π", "Δ", "Σ", "Π", "Ω"],
   },
   {
-    label: "Relations",
+    label: "Relații",
     symbols: ["≤", "≥", "≠", "≈", "∝", "∈", "∉", "⊂", "∪", "∩", "∀", "∃"],
   },
   {
-    label: "Ops",
+    label: "Operatori",
     symbols: ["√", "∫", "∑", "∏", "∂", "∇", "∞", "·", "×", "±", "→", "↔", "⇒"],
   },
   { label: "Trig", symbols: ["sin", "cos", "tan", "cot", "sec", "csc", "ln", "log"] },
@@ -64,7 +64,7 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
       }),
       Underline,
       Placeholder.configure({
-        placeholder: placeholder ?? "Write here…",
+        placeholder: placeholder ?? "Scrie aici…",
         emptyEditorClass: "is-editor-empty",
       }),
     ],
@@ -99,7 +99,7 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
   if (!editor) {
     return (
       <div className={cn("rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500", className)}>
-        Loading editor…
+        Se încarcă editorul…
       </div>
     );
   }
@@ -135,17 +135,17 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
           active={editor.isActive("bulletList")}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
         >
-          • List
+          • Listă
         </ToolbarButton>
         <ToolbarButton
           active={editor.isActive("orderedList")}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
         >
-          1. List
+          1. Listă
         </ToolbarButton>
       </div>
       <div className="flex flex-wrap gap-1 px-2 pb-1">
-        <span className="w-full text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Insert symbols</span>
+        <span className="w-full text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Inserează simboluri</span>
         {SYMBOL_PALETTES.map((g) => (
           <div key={g.label} className="flex flex-wrap gap-0.5 py-0.5">
             <span className="text-[10px] text-zinc-500 w-full">{g.label}</span>
@@ -165,7 +165,7 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
           type="button"
           onClick={() => insert("⃗")}
           className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-xs hover:bg-zinc-100"
-          title="Combining right arrow (vector)"
+          title="Săgeată dreapta combinată (vector)"
         >
           vector ⃗
         </button>

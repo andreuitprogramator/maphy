@@ -3,7 +3,7 @@ import { jsonError, jsonOk } from "@/lib/api/response";
 
 export async function GET(_: Request, ctx: { params: Promise<{ problemId: string }> }) {
   const { problemId } = await ctx.params;
-  if (!problemId) return jsonError(400, "Missing problemId");
+  if (!problemId) return jsonError(400, "ID-ul problemei lipsește");
 
   const leaderboard = await prisma.submission.findMany({
     where: { problemId, status: "GRADED" },

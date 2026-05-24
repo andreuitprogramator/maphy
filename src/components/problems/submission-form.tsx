@@ -25,9 +25,8 @@ export function SubmissionForm({
 }) {
   const router = useRouter();
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const [file, setFile] = React.useState<File | null>(null);
-  const [fileName, setFileName] = React.useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = React.useState<string[]>([]);
   const [phase, setPhase] = React.useState<Phase>("idle");
   const [dragOver, setDragOver] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -36,34 +35,46 @@ export function SubmissionForm({
 
   React.useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrls.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [previewUrl]);
+  }, [previewUrls]);
 
-  function bindFile(f: File | null) {
+  function addFiles(incoming: FileList | File[]) {
     setError(null);
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
-    setFileName(null);
-    setFile(null);
-    if (!f) return;
-    if (!f.type.startsWith("image/")) {
-      setError("Please use an image file (JPEG, PNG, WebP, …).");
+    const arr = Array.from(incoming);
+    const images = arr.filter((f) => f.type.startsWith("image/"));
+    if (images.length !== arr.length) {
+      setError("Te rugăm să folosești doar fișiere imagine (JPEG, PNG, WebP, …).");
       return;
     }
-    setFile(f);
-    setFileName(f.name);
-    setPreviewUrl(URL.createObjectURL(f));
+    const next = [...files, ...images].slice(0, 5);
+    if (files.length + images.length > 5) {
+      setError("Poți adăuga maxim 5 pagini per rezolvare.");
+    }
+    previewUrls.forEach((u) => URL.revokeObjectURL(u));
+    setFiles(next);
+    setPreviewUrls(next.map((f) => URL.createObjectURL(f)));
   }
 
-  function clearFile() {
-    bindFile(null);
+  function removeFile(idx: number) {
+    URL.revokeObjectURL(previewUrls[idx]!);
+    const nextFiles = files.filter((_, i) => i !== idx);
+    const nextPreviews = previewUrls.filter((_, i) => i !== idx);
+    setFiles(nextFiles);
+    setPreviewUrls(nextPreviews);
+    if (nextFiles.length === 0 && inputRef.current) inputRef.current.value = "";
+  }
+
+  function clearAll() {
+    previewUrls.forEach((u) => URL.revokeObjectURL(u));
+    setFiles([]);
+    setPreviewUrls([]);
     if (inputRef.current) inputRef.current.value = "";
   }
 
   async function submit() {
-    if (!file) {
-      setError("Add an image first — drag & drop or choose a file.");
+    if (files.length === 0) {
+      setError("Adaugă mai întâi o imagine — trage & plasează sau alege un fișier.");
       return;
     }
     setError(null);
@@ -73,7 +84,7 @@ export function SubmissionForm({
     const fd = new FormData();
     if (problemId) fd.set("problemId", problemId);
     if (contestSetProblemId) fd.set("contestSetProblemId", contestSetProblemId);
-    fd.set("image", file);
+    for (const f of files) fd.append("image", f);
 
     try {
       const res = await fetch("/api/submissions", {
@@ -89,28 +100,28 @@ export function SubmissionForm({
       }
 
       if (!res.ok) {
-        setError(data?.error ?? `Upload failed (${res.status})`);
+        setError(data?.error ?? `Încărcarea a eșuat (${res.status})`);
         onSubmitError?.();
         setPhase("idle");
         return;
       }
 
       if (data.submission == null) {
-        setError("Invalid server response. Please try again.");
+        setError("Răspuns invalid de la server. Încearcă din nou.");
         onSubmitError?.();
         setPhase("idle");
         return;
       }
 
       setPhase("grading");
-      clearFile();
+      clearAll();
       onSubmitResult?.(data.submission);
       window.setTimeout(() => {
         setPhase("idle");
         router.refresh();
       }, 600);
     } catch {
-      setError("Network error. Please try again.");
+      setError("Eroare de rețea. Încearcă din nou.");
       onSubmitError?.();
       setPhase("idle");
     }
@@ -118,9 +129,9 @@ export function SubmissionForm({
 
   const statusMessage =
     phase === "uploading"
-      ? "Uploading solution…"
+      ? "Se încarcă rezolvarea…"
       : phase === "grading"
-        ? "AI is grading your submission…"
+        ? "AI-ul corectează rezolvarea ta…"
         : null;
 
   return (
@@ -129,11 +140,11 @@ export function SubmissionForm({
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
+        multiple
         disabled={disabled || busy}
         className="sr-only"
         aria-hidden
-        onChange={(e) => bindFile(e.target.files?.[0] ?? null)}
+        onChange={(e) => { if (e.target.files) addFiles(e.target.files); }}
       />
 
       <div
@@ -146,21 +157,14 @@ export function SubmissionForm({
             inputRef.current?.click();
           }
         }}
-        onDragEnter={(e) => {
-          e.preventDefault();
-          if (!disabled && !busy) setDragOver(true);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!disabled && !busy) setDragOver(true);
-        }}
+        onDragEnter={(e) => { e.preventDefault(); if (!disabled && !busy) setDragOver(true); }}
+        onDragOver={(e) => { e.preventDefault(); if (!disabled && !busy) setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
           if (disabled || busy) return;
-          const f = e.dataTransfer.files?.[0];
-          if (f) bindFile(f);
+          if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
         }}
         onClick={() => !disabled && !busy && inputRef.current?.click()}
         className={cn(
@@ -169,8 +173,12 @@ export function SubmissionForm({
           dragOver ? "border-[color:var(--accent)] bg-[color:var(--accent)]/8" : "border-zinc-200 bg-zinc-50/80",
         )}
       >
-        <div className="text-sm font-medium text-zinc-900">Drop your solution here</div>
-        <div className="mt-1 text-xs text-zinc-600">or tap to choose from gallery or camera</div>
+        <div className="text-sm font-medium text-zinc-900">Trage rezolvarea ta aici</div>
+        <div className="mt-1 text-xs text-zinc-600">
+          {files.length === 0
+            ? "sau apasă pentru a alege din galerie sau cameră"
+            : `${files.length} imagine(i) selectată(e) — apasă pentru a adăuga mai multe`}
+        </div>
         <Button
           type="button"
           variant="secondary"
@@ -178,52 +186,51 @@ export function SubmissionForm({
           className="mt-4 pointer-events-none"
           tabIndex={-1}
         >
-          Browse files
+          {files.length === 0 ? "Alege fișier" : "Adaugă pagini"}
         </Button>
       </div>
 
-      {fileName ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-          <span className="min-w-0 truncate font-medium text-zinc-900" title={fileName}>
-            {fileName}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 text-zinc-600"
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation();
-              clearFile();
-            }}
-          >
-            Remove
-          </Button>
-        </div>
-      ) : null}
-
-      {previewUrl ? (
-        <div className="relative overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100">
-          {/* eslint-disable-next-line @next/next/no-img-element -- blob URL preview */}
-          <img src={previewUrl} alt="Preview of your solution" className="mx-auto max-h-64 w-full object-contain" />
+      {previewUrls.length > 0 ? (
+        <div className="grid gap-2">
+          {previewUrls.map((url, idx) => (
+            <div key={idx} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+              <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-zinc-100 bg-zinc-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`Pagina ${idx + 1}`} className="h-full w-full object-cover" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-zinc-900">{files[idx]!.name}</div>
+                <div className="text-xs text-zinc-500">Pagina {idx + 1}</div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 text-zinc-600"
+                disabled={busy}
+                onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+              >
+                Șterge
+              </Button>
+            </div>
+          ))}
         </div>
       ) : null}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Button
           type="button"
-          disabled={disabled || busy || !file}
+          disabled={disabled || busy || files.length === 0}
           onClick={submit}
           className="min-w-[140px] shrink-0 shadow-sm"
         >
           {busy ? (
             <span className="inline-flex items-center gap-2">
               <Spinner className="size-4 border-white border-t-transparent" />
-              Working…
+              Se procesează…
             </span>
           ) : (
-            "Submit solution"
+            "Trimite rezolvarea"
           )}
         </Button>
         {phase === "uploading" ? (
@@ -231,7 +238,7 @@ export function SubmissionForm({
             <div className="h-2 overflow-hidden rounded-full bg-zinc-200">
               <div className="h-full w-full animate-pulse rounded-full bg-[color:var(--accent)]/70" />
             </div>
-            <div className="mt-1 text-xs text-zinc-600 sm:text-left">Uploading…</div>
+            <div className="mt-1 text-xs text-zinc-600 sm:text-left">Se încarcă…</div>
           </div>
         ) : null}
       </div>
@@ -245,13 +252,13 @@ export function SubmissionForm({
           <Spinner className="size-5 shrink-0 border-amber-600 border-t-transparent" />
           <div>
             <div className="font-medium">{statusMessage}</div>
-            <div className="text-xs text-amber-900/80">This usually takes a few seconds. You can keep this tab open.</div>
+            <div className="text-xs text-amber-900/80">Durează de obicei câteva secunde. Poți lăsa această pagină deschisă.</div>
           </div>
         </div>
       ) : null}
 
       <p className="text-xs leading-snug text-zinc-500">
-        Images up to 8&nbsp;MB. Use good lighting and sharp focus so the AI can read your work.
+        Până la 5 pagini, max 8&nbsp;MB fiecare. Fotografiază cu lumină bună și imagine clară.
       </p>
       {error ? <div className="text-sm text-red-600">{error}</div> : null}
     </div>

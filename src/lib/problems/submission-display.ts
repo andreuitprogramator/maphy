@@ -12,6 +12,7 @@ export type ProblemSubmissionSerializable = {
   reviewedAt: string | null;
   createdAt: string;
   imageUrl: string;
+  extraImageUrls: string | null;
   user: { username: string; avatarUrl: string | null };
 };
 
@@ -25,6 +26,7 @@ export type PublicSubmissionSerializable = {
   createdAt: string;
   reviewedAt: string | null;
   imageUrl: string | null;
+  extraImageUrls: string | null;
   canViewImage: boolean;
   user: { username: string; avatarUrl: string | null };
 };
@@ -40,6 +42,7 @@ export function serializeSubmissionsForClient<
     reviewedAt: Date | null;
     createdAt: Date;
     imageUrl: string;
+    extraImageUrls?: string | null;
     user: { username: string; avatarUrl: string | null };
   },
 >(rows: T[]): ProblemSubmissionSerializable[] {
@@ -53,6 +56,7 @@ export function serializeSubmissionsForClient<
     reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
     createdAt: r.createdAt.toISOString(),
     imageUrl: r.imageUrl,
+    extraImageUrls: r.extraImageUrls ?? null,
     user: r.user,
   }));
 }
@@ -72,6 +76,7 @@ export function serializeProfileSubmissionsForClient<
     reviewedAt: Date | null;
     createdAt: Date;
     imageUrl: string;
+    extraImageUrls?: string | null;
     problem: { id: string; title: string };
   },
 >(rows: T[], profileUsername = ""): ProfileSubmissionSerializable[] {
@@ -85,6 +90,7 @@ export function serializeProfileSubmissionsForClient<
     reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
     createdAt: r.createdAt.toISOString(),
     imageUrl: r.imageUrl,
+    extraImageUrls: r.extraImageUrls ?? null,
     user: { username: profileUsername, avatarUrl: null },
     problem: r.problem,
   }));
@@ -101,6 +107,7 @@ export function serializePublicSubmissionsForClient<
     createdAt: Date;
     reviewedAt: Date | null;
     imageUrl: string | null;
+    extraImageUrls?: string | null;
     canViewImage: boolean;
     user: { username: string; avatarUrl: string | null };
   },
@@ -115,6 +122,7 @@ export function serializePublicSubmissionsForClient<
     createdAt: r.createdAt.toISOString(),
     reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
     imageUrl: r.imageUrl,
+    extraImageUrls: r.extraImageUrls ?? null,
     canViewImage: r.canViewImage,
     user: r.user,
   }));

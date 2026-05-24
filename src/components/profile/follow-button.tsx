@@ -62,7 +62,7 @@ export function FollowButton({
       disabled={disabled || pending}
       onClick={toggle}
     >
-      {pending ? "…" : following ? "Following" : "Follow"}
+      {pending ? "…" : following ? "Urmărești" : "Urmărește"}
     </Button>
   );
 }

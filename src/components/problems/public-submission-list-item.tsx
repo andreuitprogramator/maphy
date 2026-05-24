@@ -5,6 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import type { PublicSubmissionSerializable } from "@/lib/problems/submission-display";
 import { parseFeedbackBreakdown } from "@/lib/problems/feedback-breakdown";
+import { usernameColorClass } from "@/lib/ui/username-color";
+import { LatexText } from "@/components/ui/latex-text";
+import { scoreColorClass } from "@/lib/ui/score-color";
 
 export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSerializable }) {
   const [expanded, setExpanded] = React.useState(false);
@@ -20,7 +23,7 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
     <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 text-sm">
-          <Link className="font-medium text-zinc-900 hover:underline" href={`/u/${row.user.username}`}>
+          <Link className={`font-medium hover:underline ${usernameColorClass(row.user.username) || "text-zinc-900"}`} href={`/u/${row.user.username}`}>
             @{row.user.username}
           </Link>
           <span className="ml-2 text-zinc-500">{new Date(row.createdAt).toLocaleString()}</span>
@@ -38,7 +41,7 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
           <span className="rounded-full border border-zinc-200 px-2 py-0.5 font-semibold text-zinc-700">
             {row.status}
           </span>
-          <span className="font-semibold text-zinc-900">{row.aiScore ?? "—"}</span>
+          <span className={`font-semibold ${row.aiScore != null ? scoreColorClass(row.aiScore) : "text-zinc-900"}`}>{row.aiScore ?? "—"}</span>
         </div>
       </div>
       {row.canViewImage && row.imageUrl ? (
@@ -48,13 +51,13 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
           target="_blank"
           rel="noreferrer"
         >
-          <span>Open solution image</span>
+          <span>Deschide imaginea rezolvării</span>
           <span className="relative h-8 w-10 overflow-hidden rounded border border-zinc-200 bg-zinc-50">
             <Image src={row.imageUrl} alt="" fill className="object-cover" sizes="40px" />
           </span>
         </a>
       ) : (
-        <div className="mt-2 text-xs text-zinc-500">Solution image locked.</div>
+        <div className="mt-2 text-xs text-zinc-500">Imaginea rezolvării este blocată.</div>
       )}
       <div className="mt-2">
         {canExpand ? (
@@ -64,20 +67,20 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
               onClick={() => setExpanded((v) => !v)}
               className="text-xs font-medium text-[color:var(--accent)] hover:underline"
             >
-              {expanded ? "Hide AI feedback" : "Show AI feedback"}
+              {expanded ? "Ascunde feedback AI" : "Arată feedback AI"}
             </button>
             {expanded ? (
               <div className="mt-2 space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700">
                 {row.aiFeedback?.trim() ? (
                   <div>
-                    <div className="font-semibold text-zinc-800">Written feedback</div>
-                    <div className="mt-1 whitespace-pre-wrap">{row.aiFeedback}</div>
+                    <div className="font-semibold text-zinc-800">Feedback scris</div>
+                    <div className="mt-1"><LatexText>{row.aiFeedback!}</LatexText></div>
                   </div>
                 ) : null}
 
                 {breakdown?.rubric_breakdown && breakdown.rubric_breakdown.length > 0 ? (
                   <div>
-                    <div className="font-semibold text-zinc-800">Rubric breakdown</div>
+                    <div className="font-semibold text-zinc-800">Detalii barem</div>
                     <ul className="mt-1 space-y-1">
                       {breakdown.rubric_breakdown.map((r, i) => (
                         <li key={`${row.id}-rb-${i}`} className="rounded border border-zinc-200 bg-white px-2 py-1">
@@ -87,7 +90,7 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
                               {r.points} / {r.maxPoints}
                             </span>
                           </div>
-                          {r.notes ? <div className="mt-0.5 whitespace-pre-wrap text-zinc-600">{r.notes}</div> : null}
+                          {r.notes ? <div className="mt-0.5 text-zinc-600"><LatexText>{r.notes}</LatexText></div> : null}
                         </li>
                       ))}
                     </ul>
@@ -96,10 +99,10 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
 
                 {breakdown?.detected_strengths && breakdown.detected_strengths.length > 0 ? (
                   <div>
-                    <div className="font-semibold text-zinc-800">Strengths</div>
+                    <div className="font-semibold text-zinc-800">Puncte forte</div>
                     <ul className="mt-1 list-disc pl-4">
                       {breakdown.detected_strengths.map((s, i) => (
-                        <li key={`${row.id}-st-${i}`}>{s}</li>
+                        <li key={`${row.id}-st-${i}`}><LatexText>{s}</LatexText></li>
                       ))}
                     </ul>
                   </div>
@@ -107,10 +110,10 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
 
                 {breakdown?.detected_mistakes && breakdown.detected_mistakes.length > 0 ? (
                   <div>
-                    <div className="font-semibold text-zinc-800">Areas to improve</div>
+                    <div className="font-semibold text-zinc-800">De îmbunătățit</div>
                     <ul className="mt-1 list-disc pl-4">
                       {breakdown.detected_mistakes.map((s, i) => (
-                        <li key={`${row.id}-ms-${i}`}>{s}</li>
+                        <li key={`${row.id}-ms-${i}`}><LatexText>{s}</LatexText></li>
                       ))}
                     </ul>
                   </div>
@@ -118,7 +121,7 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
 
                 {row.status === "BLURRY_REJECTED" && row.imageQualityReason ? (
                   <div>
-                    <div className="font-semibold text-zinc-800">Rejected reason</div>
+                    <div className="font-semibold text-zinc-800">Motiv respingere</div>
                     <div className="mt-1 whitespace-pre-wrap">{row.imageQualityReason}</div>
                   </div>
                 ) : null}
@@ -126,7 +129,7 @@ export function PublicSubmissionListItem({ row }: { row: PublicSubmissionSeriali
             ) : null}
           </>
         ) : (
-          <div className="text-xs text-zinc-500">No AI feedback available.</div>
+          <div className="text-xs text-zinc-500">Niciun feedback AI disponibil.</div>
         )}
       </div>
     </div>

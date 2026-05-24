@@ -32,32 +32,32 @@ export default async function TeacherProblemsListPage() {
     <div className="grid gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-zinc-900">My problems</h2>
-          <p className="text-sm text-zinc-600">Everything you have uploaded or drafted.</p>
+          <h2 className="text-xl font-semibold text-zinc-900">Problemele mele</h2>
+          <p className="text-sm text-zinc-600">Tot ce ai încărcat sau salvat ca ciornă.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
             href="/teacher/problems/new"
             className="rounded-xl bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[color:var(--accent-2)]"
           >
-            New problem
+            Problemă nouă
           </Link>
           <Link
             href="/teacher/contest-sets/new"
             className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
           >
-            New contest set
+            Set de concurs nou
           </Link>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <div className="text-sm font-medium text-zinc-900">All ({problems.length})</div>
+          <div className="text-sm font-medium text-zinc-900">Toate ({problems.length})</div>
         </CardHeader>
         <CardContent className="grid gap-2">
           {problems.length === 0 ? (
-            <div className="py-8 text-center text-sm text-zinc-600">No problems yet. Create your first one.</div>
+            <div className="py-8 text-center text-sm text-zinc-600">Nicio problemă încă. Creează prima ta problemă.</div>
           ) : (
             problems.map((p) => (
               <div
@@ -75,12 +75,12 @@ export default async function TeacherProblemsListPage() {
                           : "bg-zinc-200 text-zinc-800",
                       )}
                     >
-                      {p.status === ProblemStatus.PUBLISHED ? "Published" : "Draft"}
+                      {p.status === ProblemStatus.PUBLISHED ? "Publicat" : "Ciornă"}
                     </span>
                   </div>
                   <div className="text-xs text-zinc-600">
-                    {p.subject === "MATH" ? "Math" : "Physics"} · {p.year} · Class {p.class} · {p.phase.toLowerCase()}{" "}
-                    · diff {p.difficulty}/10 · Updated {new Date(p.updatedAt).toLocaleString()}
+                    {p.subject === "MATH" ? "Matematică" : "Fizică"} · {p.year} · Clasa {p.class} · {p.phase.toLowerCase()}{" "}
+                    · dificultate {p.difficulty}/10 · Actualizat {new Date(p.updatedAt).toLocaleString()}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -89,11 +89,11 @@ export default async function TeacherProblemsListPage() {
                       href={`/problems/${p.id}`}
                       className="text-xs font-medium text-[color:var(--accent)] hover:underline"
                     >
-                      View public
+                      Vezi public
                     </Link>
                   ) : null}
                   <Link href={`/teacher/problems/${p.id}/edit`} className="text-xs font-medium text-zinc-700 hover:underline">
-                    Edit
+                    Editează
                   </Link>
                 </div>
               </div>

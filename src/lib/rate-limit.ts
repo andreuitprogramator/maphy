@@ -1,3 +1,11 @@
+export function getIp(req: Request): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
 type Bucket = { hits: number[] };
 
 const globalForRateLimit = globalThis as unknown as { buckets?: Map<string, Bucket> };

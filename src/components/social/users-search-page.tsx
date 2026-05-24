@@ -32,8 +32,8 @@ export function UsersSearchPage({
     <Container className="py-8">
       <div className="mx-auto grid max-w-2xl gap-6">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Find users</h2>
-          <p className="text-sm text-zinc-600">Search by username (partial match, not case-sensitive).</p>
+          <h2 className="text-2xl font-semibold tracking-tight">Găsește utilizatori</h2>
+          <p className="text-sm text-zinc-600">Caută după nume de utilizator (potrivire parțială, fără majuscule).</p>
         </div>
 
         <div className="relative">
@@ -41,9 +41,9 @@ export function UsersSearchPage({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a username…"
+            placeholder="Scrie un nume de utilizator…"
             autoComplete="off"
-            aria-label="Search users"
+            aria-label="Caută utilizatori"
             className="pr-10"
           />
           {query ? (
@@ -52,17 +52,17 @@ export function UsersSearchPage({
               onClick={() => clear()}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500 hover:text-zinc-900"
             >
-              Clear
+              Șterge
             </button>
           ) : null}
         </div>
 
         {debouncedQuery.length < 1 ? (
-          <p className="text-center text-sm text-zinc-500">Start typing to see matches.</p>
+          <p className="text-center text-sm text-zinc-500">Începe să scrii pentru a vedea rezultate.</p>
         ) : loading ? (
-          <p className="text-center text-sm text-zinc-600">Searching…</p>
+          <p className="text-center text-sm text-zinc-600">Se caută…</p>
         ) : users.length === 0 ? (
-          <p className="text-center text-sm text-zinc-600">No users found.</p>
+          <p className="text-center text-sm text-zinc-600">Niciun utilizator găsit.</p>
         ) : (
           <ul className="grid gap-3">
             {users.map((u) => (

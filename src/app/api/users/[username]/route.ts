@@ -20,7 +20,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ username: string 
       createdAt: true,
     },
   });
-  if (!user) return jsonError(404, "User not found");
+  if (!user) return jsonError(404, "Utilizatorul nu a fost găsit");
 
   const [submissions, agg, followers, following] = await Promise.all([
     prisma.submission.findMany({

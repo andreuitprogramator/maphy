@@ -15,6 +15,7 @@ datasource db {
 enum Subject {
   MATH
   PHYSICS
+  CHEMISTRY
 }
 
 enum Phase {
@@ -59,7 +60,6 @@ enum CommentReactionType {
 enum NotificationType {
   FOLLOWED_YOU
   FOLLOWING_USER_SUBMITTED
-  NEW_DIRECT_MESSAGE
   NEW_PROBLEM_PUBLISHED
 }
 
@@ -78,6 +78,7 @@ model User {
   username     String   @unique
   email        String   @unique
   passwordHash String
+  emailVerified Boolean @default(false)
   firstName    String   @default("")
   lastName     String   @default("")
   country      String   @default("")
@@ -88,13 +89,12 @@ model User {
   preferredLanguage String @default("")
   roleLabel    UserRole @default(STUDENT)
   aiTeacherStyle AiTeacherStyle @default(SUPPORTIVE_TEACHER)
+  usernameChangedAt DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   submissions Submission[]
   comments    Comment[]
-  conversationParticipants ConversationParticipant[]
-  sentDirectMessages DirectMessage[] @relation("MessageSender")
 
   following Follow[] @relation("following")
   followers Follow[] @relation("followers")
@@ -104,9 +104,34 @@ model User {
   commentReactions CommentReaction[]
   notificationsReceived Notification[] @relation("NotificationRecipient")
   notificationsTriggered Notification[] @relation("NotificationActor")
+  contestSetProblemRatings ContestSetProblemRating[]
+  emailVerificationTokens  EmailVerificationToken[]
+  passwordResetTokens      PasswordResetToken[]
 
   @@index([username])
   @@index([email])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Problem {
@@ -121,6 +146,8 @@ model Problem {
   phase      Phase
   officialSolution  String   @db.Text @default("")
   gradingRubric     String   @db.Text @default("")
+  extractedRubricText String? @db.Text
+  extractedRubricTextUpdatedAt DateTime?
   maxScore          Int      @default(100)
   expectedConcepts  String[] @default([])
   status            ProblemStatus @default(PUBLISHED)
@@ -157,6 +184,7 @@ model ContestSet {
   statementPdfUrl     String?
   rubricPdfUrl        String?
   rubricText          String?       @db.Text
+  leaderboardPdfUrl   String?
   status              ProblemStatus @default(DRAFT)
   publishedAt         DateTime?
   createdById         String?
@@ -180,17 +208,37 @@ model ContestSetProblem {
   title                 String
   shortSummary          String?     @db.Text
   maxScore              Int         @default(100)
+  extractedRubricText   String?     @db.Text
+  extractedRubricTextUpdatedAt DateTime?
   statementTextOverride String?     @db.Text
   solutionText          String?     @db.Text
+  aiRubricJson          String?     @db.Text
   isListedIndividually  Boolean     @default(true)
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
 
   contestSet ContestSet @relation(fields: [contestSetId], references: [id], onDelete: Cascade)
   submissions Submission[]
+  ratings     ContestSetProblemRating[]
 
   @@unique([contestSetId, orderNumber])
   @@index([contestSetId, orderNumber])
+}
+
+model ContestSetProblemRating {
+  id                  String   @id @default(cuid())
+  userId              String
+  contestSetProblemId String
+  ratingValue         Int
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contestSetProblem ContestSetProblem @relation(fields: [contestSetProblemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contestSetProblemId])
+  @@index([contestSetProblemId])
+  @@index([userId])
 }
 
 model ContestSetAttachment {
@@ -233,12 +281,14 @@ model ProblemAttachment {
   mimeType     String
   originalName String
   caption      String?  @default("")
+  role         String   @default("OTHER")
   sortOrder    Int      @default(0)
   uploadedAt   DateTime @default(now())
 
   problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
 
   @@index([problemId, sortOrder])
+  @@index([problemId, role])
 }
 
 /// User rating 1–10 (integer; same value in API and UI).
@@ -264,6 +314,7 @@ model Submission {
   contestSetProblemId String?
   score     Int      @default(0)
   imageUrl  String
+  extraImageUrls String? @db.Text
   status    SubmissionStatus @default(PENDING)
   aiScore   Int?
   aiFeedback String? @db.Text
@@ -323,42 +374,6 @@ model CommentReaction {
   @@index([userId])
 }
 
-model Conversation {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  participants ConversationParticipant[]
-  messages     DirectMessage[]
-}
-
-model ConversationParticipant {
-  id             String   @id @default(cuid())
-  conversationId String
-  userId         String
-  lastReadAt     DateTime?
-  joinedAt       DateTime @default(now())
-
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([conversationId, userId])
-  @@index([userId, conversationId])
-}
-
-model DirectMessage {
-  id             String   @id @default(cuid())
-  conversationId String
-  senderId       String
-  body           String   @db.Text
-  createdAt      DateTime @default(now())
-
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId, createdAt])
-  @@index([senderId, createdAt])
-}
 
 model Follow {
   followerId  String
@@ -382,7 +397,6 @@ model Notification {
   targetUrl       String?
   relatedProblemId String?
   relatedSubmissionId String?
-  relatedConversationId String?
   relatedCommentId String?
   eventKey        String?          @unique
   isRead          Boolean          @default(false)

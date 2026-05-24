@@ -12,7 +12,7 @@ type Props = {
   label?: string;
 };
 
-export function StarRatingInput({ value, onChange, disabled, label = "Your rating" }: Props) {
+export function StarRatingInput({ value, onChange, disabled, label = "Evaluarea ta" }: Props) {
   const [hover, setHover] = React.useState<number | null>(null);
   const display = hover ?? value;
 
@@ -41,7 +41,7 @@ export function StarRatingInput({ value, onChange, disabled, label = "Your ratin
               )}
               onMouseEnter={() => !disabled && setHover(v)}
               onClick={() => !disabled && onChange(v)}
-              aria-label={`Rate ${v} out of ${RATING_MAX}`}
+              aria-label={`Evaluează ${v} din ${RATING_MAX}`}
             >
               ★
             </button>
@@ -50,7 +50,7 @@ export function StarRatingInput({ value, onChange, disabled, label = "Your ratin
       </div>
       {value != null ? (
         <div className="text-xs text-zinc-600">
-          Saved: <span className="font-semibold tabular-nums">{value}</span> / {RATING_MAX}
+          Salvat: <span className="font-semibold tabular-nums">{value}</span> / {RATING_MAX}
         </div>
       ) : null}
     </div>

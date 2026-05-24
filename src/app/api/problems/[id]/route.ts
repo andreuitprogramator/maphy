@@ -20,10 +20,10 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
       createdById: true,
     },
   });
-  if (!problem) return jsonError(404, "Problem not found");
+  if (!problem) return jsonError(404, "Problema nu a fost găsită");
   if (problem.status === ProblemStatus.DRAFT) {
     const me = await requireUser();
-    if (!me || me.id !== problem.createdById) return jsonError(404, "Problem not found");
+    if (!me || me.id !== problem.createdById) return jsonError(404, "Problema nu a fost găsită");
   }
   return jsonOk(problem);
 }

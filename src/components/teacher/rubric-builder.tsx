@@ -52,7 +52,7 @@ export function RubricBuilder({
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-medium text-zinc-900">Grading rubric</div>
+        <div className="text-sm font-medium text-zinc-900">Barem de corectare</div>
         <div
           className={cn(
             "rounded-full px-3 py-1 text-xs font-semibold tabular-nums",
@@ -63,22 +63,22 @@ export function RubricBuilder({
         </div>
       </div>
       <p className="text-xs text-zinc-600">
-        Add one row per rubric section. Points must sum to exactly 100 before you can publish.
+        Adaugă câte un rând per secțiune. Suma punctelor trebuie să fie exact 100 pentru a putea publica.
       </p>
 
       <div className="grid gap-3">
         {items.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
-            No sections yet. Add the first rubric row.
+            Nicio secțiune încă. Adaugă primul rând din barem.
           </div>
         ) : null}
         {items.map((row, i) => (
           <div key={row.key} className="grid gap-3 rounded-xl border border-zinc-200 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-zinc-500">Section {i + 1}</span>
+              <span className="text-xs font-semibold text-zinc-500">Secțiunea {i + 1}</span>
               <div className="flex flex-wrap gap-1">
                 <Button type="button" size="sm" variant="secondary" disabled={disabled || i === 0} onClick={() => move(i, -1)}>
-                  Up
+                  Sus
                 </Button>
                 <Button
                   type="button"
@@ -87,25 +87,25 @@ export function RubricBuilder({
                   disabled={disabled || i === items.length - 1}
                   onClick={() => move(i, 1)}
                 >
-                  Down
+                  Jos
                 </Button>
                 <Button type="button" size="sm" variant="secondary" disabled={disabled} onClick={() => remove(i)}>
-                  Remove
+                  Șterge
                 </Button>
               </div>
             </div>
             <div className="grid gap-1">
-              <label className="text-xs text-zinc-600">Label</label>
+              <label className="text-xs text-zinc-600">Etichetă</label>
               <Input
                 value={row.title}
                 disabled={disabled}
                 onChange={(e) => update(i, { title: e.target.value })}
-                placeholder='e.g. "Correct free-body diagram"'
+                placeholder='ex. „Diagrama forțelor corectă"'
               />
             </div>
             <div className="grid gap-1 sm:grid-cols-3 sm:items-end sm:gap-3">
               <div className="sm:col-span-1 grid gap-1">
-                <label className="text-xs text-zinc-600">Points</label>
+                <label className="text-xs text-zinc-600">Puncte</label>
                 <Input
                   type="number"
                   min={0}
@@ -116,14 +116,14 @@ export function RubricBuilder({
                 />
               </div>
               <div className="sm:col-span-2 grid gap-1">
-                <label className="text-xs text-zinc-600">Expected evidence / what earns the points</label>
+                <label className="text-xs text-zinc-600">Ce trebuie să demonstreze elevul pentru a obține punctele</label>
                 <textarea
                   disabled={disabled}
                   value={row.description}
                   onChange={(e) => update(i, { description: e.target.value })}
                   rows={3}
                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)]"
-                  placeholder="Describe what a complete solution should show for this section."
+                  placeholder="Descrie ce trebuie să arate o rezolvare completă pentru această secțiune."
                 />
               </div>
             </div>
@@ -132,7 +132,7 @@ export function RubricBuilder({
       </div>
 
       <Button type="button" variant="secondary" disabled={disabled} onClick={() => onChange([...items, newRow()])}>
-        Add rubric section
+        Adaugă secțiune barem
       </Button>
     </div>
   );

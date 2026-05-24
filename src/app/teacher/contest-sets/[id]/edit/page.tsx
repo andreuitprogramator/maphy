@@ -19,6 +19,25 @@ export default async function EditContestSetPage({ params }: { params: Promise<{
   });
   if (!set) notFound();
 
+  // Ensure we always have exactly 3 problems in the form
+  const existingProblems = set.problems.map((p) => ({
+    orderNumber: p.orderNumber,
+    title: p.title,
+    shortSummary: p.shortSummary ?? "",
+    maxScore: p.maxScore,
+  }));
+  const problems = [1, 2, 3].map((n) => {
+    const found = existingProblems.find((p) => p.orderNumber === n);
+    return found ?? { orderNumber: n, title: `Problema ${n}`, shortSummary: "", maxScore: 100 };
+  });
+
+  const problemRubrics: Record<number, unknown> = {};
+  for (const p of set.problems) {
+    if (p.aiRubricJson) {
+      try { problemRubrics[p.orderNumber] = JSON.parse(p.aiRubricJson); } catch { /* ignore */ }
+    }
+  }
+
   return (
     <ContestSetPublishForm
       initial={{
@@ -28,20 +47,22 @@ export default async function EditContestSetPage({ params }: { params: Promise<{
         competitionName: set.competitionName,
         year: set.year,
         class: set.class,
-        stage: set.stage,
+        stage: set.stage as "LOCAL" | "COUNTY" | "NATIONAL",
         source: set.source ?? "",
         summary: set.summary ?? "",
-        statementMode: set.statementMode as "PDF_ONLY" | "TEXT_ONLY" | "BOTH",
-        statementDisplayMode: set.statementDisplayMode as "TEXT_FIRST" | "PDF_FIRST" | "PDF_ONLY" | "TEXT_ONLY",
-        statementText: set.statementText ?? "<p></p>",
+        statementMode: "PDF_ONLY",
+        statementDisplayMode: "PDF_FIRST",
+        statementText: "",
         statementPdfUrl: set.statementPdfUrl ?? "",
         rubricPdfUrl: set.rubricPdfUrl ?? "",
-        rubricText: set.rubricText ?? "",
+        rubricText: "",
+        leaderboardPdfUrl: set.leaderboardPdfUrl ?? "",
         status: set.status,
-        problems: set.problems.map((p) => ({ orderNumber: p.orderNumber, title: p.title, shortSummary: p.shortSummary ?? "", maxScore: p.maxScore })),
+        problems,
+        problemRubrics,
         attachments: set.attachments.map((a) => ({
           id: a.id,
-          role: a.role as "STATEMENT" | "RUBRIC" | "SUPPORTING" | "PROBLEM_STATEMENT" | "PROBLEM_RUBRIC",
+          role: a.role as "STATEMENT" | "RUBRIC" | "LEADERBOARD" | "SUPPORTING" | "PROBLEM_STATEMENT" | "PROBLEM_RUBRIC",
           fileUrl: a.fileUrl,
           fileType: a.fileType,
           mimeType: a.mimeType,

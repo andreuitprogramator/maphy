@@ -39,8 +39,8 @@ export default async function NotificationsPage() {
     <Container className="py-8">
       <Card>
         <CardHeader>
-          <div className="text-lg font-semibold tracking-tight text-zinc-900">Notifications</div>
-          <div className="text-sm text-zinc-600">Recent activity around your account.</div>
+          <div className="text-lg font-semibold tracking-tight text-zinc-900">Notificări</div>
+          <div className="text-sm text-zinc-600">Activitate recentă legată de contul tău.</div>
         </CardHeader>
         <CardContent>
           <NotificationsList initialRows={initialRows} initialUnreadCount={unreadCount} />

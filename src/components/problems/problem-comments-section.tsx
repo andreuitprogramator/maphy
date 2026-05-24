@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import type { ProblemCommentTreeNode } from "@/lib/comments/comment-types";
+import { usernameColorClass } from "@/lib/ui/username-color";
 
 function updateCommentInTree(
   list: ProblemCommentTreeNode[],
@@ -95,7 +96,7 @@ function CommentComposer({
     <form onSubmit={submit} className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3">
       {replyHintUsername ? (
         <div className="text-xs font-medium text-zinc-700">
-          Replying to <span className="text-[color:var(--accent)]">@{replyHintUsername}</span>
+          Răspuns la <span className="text-[color:var(--accent)]">@{replyHintUsername}</span>
         </div>
       ) : null}
       <textarea
@@ -103,12 +104,12 @@ function CommentComposer({
         onChange={(e) => setBody(e.target.value)}
         maxLength={2000}
         rows={3}
-        placeholder={parentId ? "Write a reply…" : "Write a comment…"}
+        placeholder={parentId ? "Scrie un răspuns…" : "Scrie un comentariu…"}
         className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)]"
       />
       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
         <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2 py-1">
-          <span>Image</span>
+          <span>Imagine</span>
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif"
@@ -129,16 +130,16 @@ function CommentComposer({
             checked={containsSpoiler}
             onChange={(e) => setContainsSpoiler(e.target.checked)}
           />
-          Spoilers
+          Conține spoilere
         </label>
         <div className="flex flex-wrap gap-2">
           {onCancel ? (
             <Button type="button" size="sm" variant="secondary" onClick={onCancel}>
-              Cancel
+              Anulează
             </Button>
           ) : null}
           <Button type="submit" size="sm" disabled={pending}>
-            {pending ? "Posting…" : submitLabel}
+            {pending ? "Se postează…" : submitLabel}
           </Button>
         </div>
       </div>
@@ -214,11 +215,11 @@ export function ProblemCommentsSection({
     <div className="grid gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-medium text-zinc-900">Discussion</div>
+          <div className="text-sm font-medium text-zinc-900">Discuție</div>
           <div className="text-xs text-zinc-600">
-            {totalCount} {totalCount === 1 ? "comment" : "comments"} · Avoid posting full solutions here.
+            {totalCount} {totalCount === 1 ? "comentariu" : "comentarii"} · Evitați să postați soluții complete aici.
             <span className="mt-0.5 block text-zinc-500">
-              You can reply to and like/dislike your own comments if you want.
+              Poți răspunde și aprecia/dezaprecia propriile comentarii dacă vrei.
             </span>
           </div>
         </div>
@@ -230,19 +231,19 @@ export function ProblemCommentsSection({
           parentId={null}
           replyHintUsername={null}
           onPosted={refresh}
-          submitLabel="Post comment"
+          submitLabel="Postează comentariu"
         />
       ) : (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
           <Link href="/login" className="font-medium text-[color:var(--accent)] hover:underline">
-            Log in
+            Autentifică-te
           </Link>{" "}
-          to join the discussion.
+          pentru a participa la discuție.
         </div>
       )}
 
       <div className="grid gap-2">
-        {comments.length === 0 ? <div className="text-sm text-zinc-600">No comments yet.</div> : null}
+        {comments.length === 0 ? <div className="text-sm text-zinc-600">Niciun comentariu încă.</div> : null}
         {comments.map((c) => (
           <CommentNode
             key={c.id}
@@ -323,7 +324,7 @@ function CommentEditForm({
     const data = await res.json().catch(() => ({}));
     setPending(false);
     if (!res.ok) {
-      setError(data?.error ?? "Could not save");
+      setError(data?.error ?? "Nu s-a putut salva");
       return;
     }
     onSaved();
@@ -333,7 +334,7 @@ function CommentEditForm({
 
   return (
     <form onSubmit={submit} className="mt-2 grid gap-2 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
-      <div className="text-xs font-medium text-amber-950">Edit comment</div>
+      <div className="text-xs font-medium text-amber-950">Editează comentariul</div>
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
@@ -353,7 +354,7 @@ function CommentEditForm({
       ) : null}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2 py-1">
-          <span>New image</span>
+          <span>Imagine nouă</span>
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif"
@@ -364,7 +365,7 @@ function CommentEditForm({
         {node.imageUrl ? (
           <label className="inline-flex items-center gap-1 text-zinc-700">
             <input type="checkbox" checked={removeImage} onChange={(e) => setRemoveImage(e.target.checked)} />
-            Remove image
+            Șterge imaginea
           </label>
         ) : null}
       </div>
@@ -378,14 +379,14 @@ function CommentEditForm({
           checked={containsSpoiler}
           onChange={(e) => setContainsSpoiler(e.target.checked)}
         />
-        Spoilers
+        Conține spoilere
       </label>
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant="secondary" onClick={onCancel}>
-          Cancel
+          Anulează
         </Button>
         <Button type="submit" size="sm" disabled={pending}>
-          {pending ? "Saving…" : "Save"}
+          {pending ? "Se salvează…" : "Salvează"}
         </Button>
       </div>
       {error ? <div className="text-xs text-red-600">{error}</div> : null}
@@ -452,17 +453,17 @@ function CommentNode({
                 {node.user.username.slice(0, 1).toUpperCase()}
               </span>
             )}
-            <Link className="font-medium text-zinc-900 hover:underline" href={`/u/${node.user.username}`}>
+            <Link className={`font-medium hover:underline ${usernameColorClass(node.user.username) || "text-zinc-900"}`} href={`/u/${node.user.username}`}>
               @{node.user.username}
             </Link>
             {node.badges.isTeacher ? (
-              <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-900">Teacher</span>
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-900">Profesor</span>
             ) : null}
             {node.badges.isAuthor ? (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-950">Author</span>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-950">Autor</span>
             ) : null}
             {node.badges.solved100 ? (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-900">Solved 100</span>
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-900">Rezolvat 100</span>
             ) : null}
             <span className="text-zinc-500">{new Date(node.createdAt).toLocaleString()}</span>
             {node.editedAt ? (
@@ -474,7 +475,7 @@ function CommentNode({
         </div>
         {node.replyTo ? (
           <div className="mt-1 text-[11px] text-zinc-500">
-            Replying to{" "}
+            Răspuns la{" "}
             <Link href={`/u/${node.replyTo.username}`} className="text-[color:var(--accent)] hover:underline">
               @{node.replyTo.username}
             </Link>
@@ -499,7 +500,7 @@ function CommentNode({
                 onClick={() => setOpenSpoilers((s) => ({ ...s, [node.id]: true }))}
                 className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-950"
               >
-                Spoiler — click to reveal
+                Spoiler — apasă pentru a dezvălui
               </button>
             ) : (
               <>
@@ -537,7 +538,7 @@ function CommentNode({
                     }}
                     className="text-xs font-medium text-[color:var(--accent)] hover:underline"
                   >
-                    {replyingTo?.id === node.id ? "Cancel reply" : "Reply"}
+                    {replyingTo?.id === node.id ? "Anulează răspuns" : "Răspunde"}
                   </button>
                   <div className="flex items-center gap-1 text-xs text-zinc-600">
                     <button
@@ -579,14 +580,14 @@ function CommentNode({
                     }}
                     className="text-xs text-zinc-500 hover:text-zinc-800"
                   >
-                    Edit
+                    Editează
                   </button>
                   <button
                     type="button"
                     onClick={() => onRemove(node.id)}
                     className="text-xs text-zinc-500 hover:text-zinc-800"
                   >
-                    Delete
+                    Șterge
                   </button>
                 </div>
               ) : null}
@@ -603,7 +604,7 @@ function CommentNode({
                     setReplyingTo(null);
                     void onRefresh();
                   }}
-                  submitLabel="Post reply"
+                  submitLabel="Postează răspunsul"
                 />
               </div>
             ) : null}
@@ -618,7 +619,7 @@ function CommentNode({
             onClick={() => setRepliesOpen((v) => !v)}
             className="text-xs font-medium text-zinc-500 hover:text-zinc-800"
           >
-            {repliesOpen ? "Hide replies" : `Show ${node.directReplyCount} repl${node.directReplyCount === 1 ? "y" : "ies"}`}
+            {repliesOpen ? "Ascunde răspunsuri" : `Arată ${node.directReplyCount} ${node.directReplyCount === 1 ? "răspuns" : "răspunsuri"}`}
           </button>
           {repliesOpen ? (
             <div className="mt-2 grid gap-2">

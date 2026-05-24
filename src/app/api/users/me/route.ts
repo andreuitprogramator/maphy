@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+﻿import { prisma } from "@/lib/db/prisma";
 import { requireUser } from "@/lib/auth/require-user";
 import { jsonError, jsonOk } from "@/lib/api/response";
 import { profilePatchSchema } from "@/lib/users/validation";
@@ -14,7 +14,7 @@ export async function GET() {
   if (!me) return jsonError(401, "Not authenticated");
 
   const user = await findUserForSettingsPage(me.id);
-  if (!user) return jsonError(404, "User not found");
+  if (!user) return jsonError(404, "Utilizatorul nu a fost găsit");
   return jsonOk({ user });
 }
 
@@ -25,7 +25,7 @@ export async function PATCH(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = profilePatchSchema.safeParse(body);
   if (!parsed.success) {
-    return jsonError(400, "Invalid input", { issues: parsed.error.flatten().fieldErrors as object });
+    return jsonError(400, "Date invalide", { issues: parsed.error.flatten().fieldErrors as object });
   }
 
   const data = parsed.data;
@@ -39,12 +39,25 @@ export async function PATCH(req: Request) {
   }
 
   if (data.username !== me.username) {
+    const currentUser = await prisma.user.findUnique({
+      where: { id: me.id },
+      select: { usernameChangedAt: true },
+    });
+    if (currentUser?.usernameChangedAt) {
+      const nextAllowed = new Date(currentUser.usernameChangedAt);
+      nextAllowed.setDate(nextAllowed.getDate() + 7);
+      if (new Date() < nextAllowed) {
+        return jsonError(429, `Poți schimba username-ul din nou pe ${nextAllowed.toLocaleDateString("ro-RO")}.`);
+      }
+    }
     const taken = await prisma.user.findFirst({
       where: { username: data.username, NOT: { id: me.id } },
       select: { id: true },
     });
-    if (taken) return jsonError(409, "Username already taken");
+    if (taken) return jsonError(409, "Numele de utilizator este deja ocupat", { issues: { username: ["Numele de utilizator este deja ocupat"] } });
   }
+
+  const usernameChanged = data.username !== me.username;
 
   const baseData = {
     username: data.username,
@@ -64,10 +77,17 @@ export async function PATCH(req: Request) {
       data: { ...baseData, aiTeacherStyle: data.aiTeacherStyle },
       select: settingsUserFullSelect,
     });
+
+    if (usernameChanged) {
+      try {
+        await prisma.user.update({ where: { id: me.id }, data: { usernameChangedAt: new Date() } });
+      } catch { /* ignore if field doesn't exist yet */ }
+    }
+
     return jsonOk({ user });
   } catch (e: unknown) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      return jsonError(409, "Username already taken");
+      return jsonError(409, "Numele de utilizator este deja ocupat", { issues: { username: ["Numele de utilizator este deja ocupat"] } });
     }
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
       const user = await prisma.user.update({
@@ -75,6 +95,13 @@ export async function PATCH(req: Request) {
         data: baseData,
         select: settingsUserBaseSelect,
       });
+
+      if (usernameChanged) {
+        try {
+          await prisma.user.update({ where: { id: me.id }, data: { usernameChangedAt: new Date() } });
+        } catch { /* ignore if field doesn't exist yet */ }
+      }
+
       return jsonOk({ user });
     }
     throw e;

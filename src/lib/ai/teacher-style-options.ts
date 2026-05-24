@@ -4,33 +4,33 @@
 export const AI_TEACHER_STYLE_OPTIONS = [
   {
     value: "STRICT_OLYMPIAD_JUDGE",
-    label: "Strict Olympiad Judge",
-    shortDescription: "Minimal praise, rubric-first, concise corrections.",
+    label: "Judecător olimpic strict",
+    shortDescription: "Laudă minimă, barem pe primul loc, corecturi concise.",
   },
   {
     value: "SUPPORTIVE_TEACHER",
-    label: "Supportive Teacher",
-    shortDescription: "Encouraging tone and gentle explanations.",
+    label: "Profesor susținător",
+    shortDescription: "Ton încurajator și explicații blânde.",
   },
   {
     value: "DETAILED_TUTOR",
-    label: "Detailed Tutor",
-    shortDescription: "Thorough, step-by-step reasoning and extra clarification.",
+    label: "Meditator detaliat",
+    shortDescription: "Raționament pas cu pas și clarificări suplimentare.",
   },
   {
     value: "FUNNY_LIGHTHEARTED",
-    label: "Funny / Lighthearted",
-    shortDescription: "Playful, humorous tone while staying mathematically correct.",
+    label: "Amuzant / Relaxat",
+    shortDescription: "Ton jucăuș și plin de umor, dar corect din punct de vedere matematic.",
   },
   {
     value: "EDUCATIONAL_MENTOR",
-    label: "Educational Mentor",
-    shortDescription: "Concepts, intuition, and why the ideas work.",
+    label: "Mentor educațional",
+    shortDescription: "Concepte, intuiție și de ce funcționează ideile.",
   },
   {
     value: "COMPETITION_COACH",
-    label: "Competition Coach",
-    shortDescription: "Strategy, olympiad mindset, and alternative approaches.",
+    label: "Antrenor de concurs",
+    shortDescription: "Strategie, mentalitate olimpică și abordări alternative.",
   },
 ] as const;
 

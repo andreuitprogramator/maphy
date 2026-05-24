@@ -10,14 +10,14 @@ import {
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const me = await requireUser();
-  if (!me) return jsonError(401, "Not authenticated");
+  if (!me) return jsonError(401, "Neautentificat");
 
   const { id: problemId } = await ctx.params;
   const problem = await prisma.problem.findUnique({
     where: { id: problemId },
     select: { id: true, status: true },
   });
-  if (!problem) return jsonError(404, "Problem not found");
+  if (!problem) return jsonError(404, "Problema nu a fost găsită");
   if (problem.status !== ProblemStatus.PUBLISHED) return jsonError(403, "Only published problems can be rated.");
 
   const body = await req.json().catch(() => null);

@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   if (!me) return jsonError(401, "Not authenticated");
 
   const form = await req.formData().catch(() => null);
-  if (!form) return jsonError(400, "Invalid form data");
+  if (!form) return jsonError(400, "Date formular invalide");
 
   const file = form.get("avatar");
   if (!(file instanceof File)) return jsonError(400, "Missing image");

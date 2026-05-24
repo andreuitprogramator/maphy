@@ -18,7 +18,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const body = await req.json().catch(() => null);
   const parsed = contestSetSaveSchema.safeParse(body);
   if (!parsed.success) {
-    return jsonError(400, "Invalid input", { issues: parsed.error.flatten().fieldErrors });
+    return jsonError(400, "Date invalide", { issues: parsed.error.flatten().fieldErrors });
   }
 
   const data = parsed.data;
@@ -28,6 +28,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (errs.length) return jsonError(400, "Cannot publish yet", { errors: errs });
   }
 
+  // Preserve aiRubricJson across the delete+recreate cycle
+  const existingProblems = await prisma.contestSetProblem.findMany({
+    where: { contestSetId: id },
+    select: { orderNumber: true, aiRubricJson: true },
+  });
+  const rubricsByOrder = new Map(existingProblems.map((p) => [p.orderNumber, p.aiRubricJson]));
+
   await prisma.$transaction([
     prisma.contestSetProblem.deleteMany({ where: { contestSetId: id } }),
     prisma.contestSet.update({
@@ -35,7 +42,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         title: data.title,
         subject: data.subject,
-        competitionName: data.competitionName,
+        competitionName: data.competitionName || data.title,
         year: data.year,
         class: data.class,
         stage: data.stage,
@@ -46,6 +53,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         statementText: data.statementText?.trim() ? data.statementText : null,
         statementPdfUrl: data.statementPdfUrl ?? null,
         rubricPdfUrl: data.rubricPdfUrl ?? null,
+        leaderboardPdfUrl: data.leaderboardPdfUrl ?? null,
         rubricText: data.rubricText?.trim() ? data.rubricText : null,
         status: nextStatus,
         publishedAt: nextStatus === ProblemStatus.PUBLISHED ? existing.publishedAt ?? new Date() : null,
@@ -56,6 +64,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
             title: p.title,
             shortSummary: p.shortSummary?.trim() ? p.shortSummary : null,
             maxScore: p.maxScore,
+            aiRubricJson: rubricsByOrder.get(p.orderNumber) ?? null,
           })),
         },
       },

@@ -1,4 +1,4 @@
-import { after } from "next/server";
+﻿import { after } from "next/server";
 import { z } from "zod";
 import { ProblemStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
@@ -6,16 +6,15 @@ import { jsonError, jsonOk } from "@/lib/api/response";
 import { requireUser } from "@/lib/auth/require-user";
 import { rateLimit } from "@/lib/rate-limit";
 import { storage } from "@/lib/storage/driver";
-import { gradeSubmission } from "@/lib/grading/service";
+import { gradeSubmissionSimple } from "@/lib/grading/service";
 import { PEER_SOLUTION_IMAGE_UNLOCK_MIN_SCORE } from "@/lib/problems/submission-display";
-import { notifyFollowersOfSubmission } from "@/lib/notifications/service";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const problemId = url.searchParams.get("problemId");
   const contestSetProblemId = url.searchParams.get("contestSetProblemId");
   const scope = url.searchParams.get("scope");
-  if (!problemId && !contestSetProblemId) return jsonError(400, "Missing problemId or contestSetProblemId");
+  if (!problemId && !contestSetProblemId) return jsonError(400, "ID problemă sau set de concurs lipsește");
 
   const me = await requireUser();
 
@@ -25,7 +24,7 @@ export async function GET(req: Request) {
   };
 
   if (scope === "mine") {
-    if (!me) return jsonError(401, "Not authenticated");
+    if (!me) return jsonError(401, "Neautentificat");
     const submissions = await prisma.submission.findMany({
       where: { ...targetWhere, userId: me.id },
       orderBy: [{ createdAt: "desc" }],
@@ -40,6 +39,7 @@ export async function GET(req: Request) {
         reviewedAt: true,
         createdAt: true,
         imageUrl: true,
+        extraImageUrls: true,
         user: { select: { id: true, username: true, avatarUrl: true } },
       },
     });
@@ -74,6 +74,7 @@ export async function GET(req: Request) {
       reviewedAt: true,
       createdAt: true,
       imageUrl: true,
+      extraImageUrls: true,
       userId: true,
       user: { select: { username: true, avatarUrl: true } },
     },
@@ -92,6 +93,7 @@ export async function GET(req: Request) {
       reviewedAt: row.reviewedAt,
       createdAt: row.createdAt,
       imageUrl: canViewImage ? row.imageUrl : null,
+      extraImageUrls: canViewImage ? row.extraImageUrls : null,
       canViewImage,
       user: row.user,
     };
@@ -102,7 +104,7 @@ export async function GET(req: Request) {
     viewerUnlockedPeerImages,
     unlockHint: viewerUnlockedPeerImages
       ? null
-      : `Score at least ${PEER_SOLUTION_IMAGE_UNLOCK_MIN_SCORE}/100 on this problem to unlock other users' solution images.`,
+      : `Obține cel puțin ${PEER_SOLUTION_IMAGE_UNLOCK_MIN_SCORE}/100 la această problemă pentru a debloca imaginile celorlalți utilizatori.`,
   });
 }
 
@@ -117,13 +119,13 @@ const CreateSchema = z
 
 export async function POST(req: Request) {
   const user = await requireUser();
-  if (!user) return jsonError(401, "Not authenticated");
+  if (!user) return jsonError(401, "Neautentificat");
 
   const rl = rateLimit({ key: `submissions:${user.id}`, limit: 5, windowMs: 15 * 60 * 1000 });
-  if (!rl.ok) return jsonError(429, "Too many submissions", { retryAfterMs: rl.retryAfterMs });
+  if (!rl.ok) return jsonError(429, "Prea multe rezolvări trimise. Încearcă din nou mai târziu.", { retryAfterMs: rl.retryAfterMs });
 
   const form = await req.formData().catch(() => null);
-  if (!form) return jsonError(400, "Invalid form data");
+  if (!form) return jsonError(400, "Date formular invalide");
 
   const problemIdRaw = form.get("problemId");
   const contestSetProblemIdRaw = form.get("contestSetProblemId");
@@ -131,7 +133,7 @@ export async function POST(req: Request) {
     problemId: typeof problemIdRaw === "string" ? problemIdRaw : undefined,
     contestSetProblemId: typeof contestSetProblemIdRaw === "string" ? contestSetProblemIdRaw : undefined,
   });
-  if (!parsed.success) return jsonError(400, "Invalid input", { issues: parsed.error.issues });
+  if (!parsed.success) return jsonError(400, "Date invalide", { issues: parsed.error.issues });
 
   const targetProblemId = parsed.data.problemId ?? null;
   const targetContestSetProblemId = parsed.data.contestSetProblemId ?? null;
@@ -142,9 +144,9 @@ export async function POST(req: Request) {
       where: { id: targetProblemId },
       select: { id: true, status: true, title: true },
     });
-    if (!problem) return jsonError(404, "Problem not found");
+    if (!problem) return jsonError(404, "Problema nu a fost găsită");
     if (problem.status !== ProblemStatus.PUBLISHED) {
-      return jsonError(403, "Submissions are only accepted for published problems.");
+      return jsonError(403, "Rezolvările sunt acceptate doar pentru problemele publicate.");
     }
   }
 
@@ -153,30 +155,36 @@ export async function POST(req: Request) {
       where: { id: targetContestSetProblemId },
       select: { id: true, contestSet: { select: { status: true } } },
     });
-    if (!contestSetProblem) return jsonError(404, "Contest set problem not found");
+    if (!contestSetProblem) return jsonError(404, "Problema din setul de concurs nu a fost găsită");
     if (contestSetProblem.contestSet.status !== ProblemStatus.PUBLISHED) {
-      return jsonError(403, "Submissions are only accepted for published contest sets.");
+      return jsonError(403, "Rezolvările sunt acceptate doar pentru seturile de concurs publicate.");
     }
   }
 
-  const file = form.get("image");
-  if (!(file instanceof File)) return jsonError(400, "Missing image");
-  if (!file.type.startsWith("image/")) return jsonError(400, "File must be an image");
-  if (file.size > 8 * 1024 * 1024) return jsonError(400, "Image too large (max 8MB)");
+  const rawFiles = form.getAll("image");
+  const files = rawFiles.filter((f): f is File => f instanceof File);
+  if (files.length === 0) return jsonError(400, "Imaginea lipsește");
+  if (files.length > 5) return jsonError(400, "Maxim 5 imagini per rezolvare");
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) return jsonError(400, "Toate fișierele trebuie să fie imagini");
+    if (f.size > 8 * 1024 * 1024) return jsonError(400, "Fiecare imagine trebuie să fie sub 8MB");
+  }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const stored = await storage.saveImage({
-    bytes,
-    filename: file.name || "solution.jpg",
-    folder: `solutions/${user.id}/${targetProblemId ?? targetContestSetProblemId ?? "unknown"}`,
-  });
+  const folder = `solutions/${user.id}/${targetProblemId ?? targetContestSetProblemId ?? "unknown"}`;
+  const [primaryStored, ...extraStored] = await Promise.all(
+    files.map(async (f, i) => {
+      const buf = await f.arrayBuffer();
+      return storage.saveImage({ bytes: new Uint8Array(buf), filename: f.name || `solution_${i}.jpg`, folder });
+    })
+  );
 
   const submission = await prisma.submission.create({
     data: {
       userId: user.id,
       problemId: targetProblemId,
       contestSetProblemId: targetContestSetProblemId,
-      imageUrl: stored.publicUrl,
+      imageUrl: primaryStored!.publicUrl,
+      extraImageUrls: extraStored.length > 0 ? JSON.stringify(extraStored.map((s) => s.publicUrl)) : null,
       status: "PENDING",
     },
     select: {
@@ -189,26 +197,28 @@ export async function POST(req: Request) {
       reviewedAt: true,
       createdAt: true,
       imageUrl: true,
+      extraImageUrls: true,
       user: { select: { id: true, username: true, avatarUrl: true } },
     },
   });
 
-  if (problem) {
-    await notifyFollowersOfSubmission({
-      submissionId: submission.id,
-      submitterId: user.id,
-      submitterUsername: user.username,
-      problemId: problem.id,
-      problemTitle: problem.title,
-    });
-  }
-
   const submissionId = submission.id;
   after(async () => {
     try {
-      await gradeSubmission(submissionId);
+      await gradeSubmissionSimple(submissionId);
     } catch (err) {
-      console.error("[submissions] background grading error:", err);
+      // Eroare neprinsă din gradeSubmissionSimple (ex. Prisma findUnique fail, eroare pre-try).
+      const errName = err instanceof Error ? err.constructor.name : typeof err;
+      const errMessage = err instanceof Error ? err.message : String(err);
+      const errStack = err instanceof Error ? (err.stack ?? "") : "";
+      console.error(
+        `[submissions] background grading error — submissionId=${submissionId}`,
+        {
+          errorName: errName,
+          errorMessage: errMessage,
+          stack: errStack.split("\n").slice(0, 8).join("\n"),
+        },
+      );
       try {
         await prisma.submission.update({
           where: { id: submissionId },

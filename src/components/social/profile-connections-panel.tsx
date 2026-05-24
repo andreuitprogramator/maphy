@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { FollowButton } from "@/components/profile/follow-button";
-import { MessageUserButton } from "@/components/social/message-user-button";
+import { usernameColorClass } from "@/lib/ui/username-color";
 
 type Row = { username: string; avatarUrl: string | null; isYou: boolean; isFollowing: boolean };
 
@@ -67,7 +67,7 @@ export function ProfileConnectionsPanel({
         <button
           type="button"
           className="absolute inset-0 bg-zinc-900/50 backdrop-blur-[1px]"
-          aria-label="Close dialog"
+          aria-label="Închide dialogul"
           onClick={() => setMode(null)}
         />
         <div
@@ -76,21 +76,21 @@ export function ProfileConnectionsPanel({
         >
           <div className="flex shrink-0 items-center justify-between border-b border-zinc-100 px-4 py-3">
             <h2 id="connections-dialog-title" className="text-sm font-semibold text-zinc-900">
-              {mode === "followers" ? "Followers" : "Following"}
+              {mode === "followers" ? "Urmăritori" : "Urmărești"}
             </h2>
             <button
               type="button"
               onClick={() => setMode(null)}
               className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
             >
-              Close
+              Închide
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             {loading ? (
-              <div className="py-8 text-center text-sm text-zinc-500">Loading…</div>
+              <div className="py-8 text-center text-sm text-zinc-500">Se încarcă…</div>
             ) : rows.length === 0 ? (
-              <div className="py-8 text-center text-sm text-zinc-500">No users yet.</div>
+              <div className="py-8 text-center text-sm text-zinc-500">Niciun utilizator încă.</div>
             ) : (
               <ul className="grid gap-2">
                 {rows.map((u) => {
@@ -110,11 +110,10 @@ export function ProfileConnectionsPanel({
                             </span>
                           )}
                         </span>
-                        <span className="truncate text-sm font-medium text-zinc-900">@{u.username}</span>
+                        <span className={`truncate text-sm font-medium ${usernameColorClass(u.username) || "text-zinc-900"}`}>@{u.username}</span>
                       </Link>
                       <div className="flex flex-shrink-0 items-center gap-1.5">
                         {showFollow ? <FollowButton username={u.username} initialFollowing={u.isFollowing} /> : null}
-                        {!u.isYou && currentUsername ? <MessageUserButton username={u.username} /> : null}
                       </div>
                     </li>
                   );
@@ -135,7 +134,7 @@ export function ProfileConnectionsPanel({
           className="rounded-xl border border-zinc-200 p-2 transition-colors hover:bg-zinc-50"
         >
           <div className="text-sm font-semibold text-zinc-900">{followersCount}</div>
-          <div className="text-xs text-zinc-600">Followers</div>
+          <div className="text-xs text-zinc-600">Urmăritori</div>
         </button>
         <button
           type="button"
@@ -143,7 +142,7 @@ export function ProfileConnectionsPanel({
           className="rounded-xl border border-zinc-200 p-2 transition-colors hover:bg-zinc-50"
         >
           <div className="text-sm font-semibold text-zinc-900">{followingCount}</div>
-          <div className="text-xs text-zinc-600">Following</div>
+          <div className="text-xs text-zinc-600">Urmărești</div>
         </button>
       </div>
       {mounted && modal ? createPortal(modal, document.body) : null}

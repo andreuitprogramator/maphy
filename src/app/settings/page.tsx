@@ -17,6 +17,7 @@ export default async function SettingsPage() {
       user={{
         ...user,
         createdAt: user.createdAt.toISOString(),
+        usernameChangedAt: user.usernameChangedAt?.toISOString() ?? null,
       }}
     />
   );
