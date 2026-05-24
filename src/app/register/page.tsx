@@ -51,6 +51,23 @@ export default function RegisterPage() {
     setSuccessEmail(body.email);
   }
 
+  React.useEffect(() => {
+    if (!successEmail) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/auth/await-verification?email=${encodeURIComponent(successEmail)}`);
+        const data = await res.json();
+        if (data.verified) {
+          clearInterval(interval);
+          window.location.href = "/";
+        }
+      } catch {
+        // ignore network errors, keep polling
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [successEmail]);
+
   if (successEmail) {
     return (
       <Container className="py-10">
@@ -65,7 +82,7 @@ export default function RegisterPage() {
                 Apasă linkul din email pentru a-ți activa contul.
               </p>
               <p className="text-xs text-zinc-500">
-                Nu ai primit emailul? Verifică folderul de spam. Linkul expiră în 24 de ore.
+                Această pagină te va loga automat după confirmare. Nu ai primit emailul? Verifică folderul de spam.
               </p>
               <Link className="text-sm text-[color:var(--accent)] hover:underline" href="/login">
                 Înapoi la autentificare
