@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { signAccessToken } from "@/lib/auth/jwt";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
@@ -26,13 +27,13 @@ export async function GET(req: Request) {
   ]);
 
   const sessionToken = signAccessToken({ sub: record.user.id, username: record.user.username });
-  const res = NextResponse.redirect(new URL("/?verified=1", req.url));
-  res.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE_NAME, sessionToken, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
-  return res;
+  return NextResponse.redirect(new URL("/?verified=1", req.url));
 }
