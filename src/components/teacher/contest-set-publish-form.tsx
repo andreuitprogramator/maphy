@@ -623,6 +623,28 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
         <Button type="button" disabled={pending || uploading} onClick={() => save(ProblemStatus.PUBLISHED)}>
           {pending ? "Se publică…" : isPublished ? "Salvează modificări" : "Publică concursul"}
         </Button>
+        {form.id && (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={pending || uploading}
+            onClick={async () => {
+              if (!confirm("Ești sigur că vrei să ștergi acest concurs? Acțiunea este ireversibilă.")) return;
+              setPending(true);
+              const res = await fetch(`/api/teacher/contest-sets/${form.id}`, { method: "DELETE" });
+              setPending(false);
+              if (res.ok) {
+                router.push("/teacher/contest-sets");
+                router.refresh();
+              } else {
+                const d = await res.json().catch(() => ({}));
+                setError(d?.error ?? "Ștergerea a eșuat");
+              }
+            }}
+          >
+            Șterge concursul
+          </Button>
+        )}
       </div>
     </div>
   );

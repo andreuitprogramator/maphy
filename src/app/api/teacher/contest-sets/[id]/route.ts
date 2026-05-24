@@ -84,7 +84,6 @@ export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> 
     select: { id: true, status: true },
   });
   if (!existing) return jsonError(404, "Contest set not found");
-  if (existing.status !== ProblemStatus.DRAFT) return jsonError(400, "Only drafts can be deleted");
 
   await prisma.contestSet.delete({ where: { id } });
   return jsonOk({ ok: true });
