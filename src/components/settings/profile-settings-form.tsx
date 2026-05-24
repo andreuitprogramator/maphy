@@ -21,8 +21,6 @@ export type SettingsUserDTO = {
   email: string;
   firstName: string;
   lastName: string;
-  country: string;
-  city: string;
   school: string;
   bio: string;
   avatarUrl: string | null;
@@ -33,11 +31,6 @@ export type SettingsUserDTO = {
   createdAt: string;
 };
 
-const roleOptionsAll: { value: UserRole; label: string }[] = [
-  { value: UserRole.STUDENT, label: "Elev" },
-  { value: UserRole.TEACHER, label: "Profesor" },
-  { value: UserRole.OTHER, label: "Altul" },
-];
 
 function FieldError({ msg }: { msg?: string }) {
   if (!msg) return null;
@@ -49,20 +42,55 @@ function normalizeTeacherStyle(v: string | null | undefined): AiTeacherStyleValu
   return "SUPPORTIVE_TEACHER";
 }
 
+function TeacherRequestCard({ user }: { user: SettingsUserDTO }) {
+  const [pending, setPending] = React.useState(false);
+  const [done, setDone] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function sendRequest() {
+    setPending(true);
+    setError(null);
+    const res = await fetch("/api/teacher-request", { method: "POST" });
+    setPending(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data?.error ?? "A apărut o eroare");
+      return;
+    }
+    setDone(true);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="text-sm font-medium text-zinc-900">Cont de profesor</div>
+        <div className="text-sm text-zinc-600">
+          Dacă ești profesor și vrei acces la funcționalitățile pentru profesori, trimite o cerere. O vei primi pe email după aprobare.
+        </div>
+      </CardHeader>
+      <CardContent>
+        {done ? (
+          <p className="text-sm text-emerald-600">Cererea a fost trimisă. Vei fi contactat după aprobare.</p>
+        ) : (
+          <div className="grid gap-3">
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            <Button variant="secondary" disabled={pending} onClick={sendRequest} type="button">
+              {pending ? "Se trimite…" : "Solicită acces profesor"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
-  const roleOptions =
-    user.roleLabel === UserRole.TEACHER
-      ? roleOptionsAll.filter((r) => r.value !== UserRole.STUDENT)
-      : roleOptionsAll;
   const [username, setUsername] = React.useState(user.username);
   const [firstName, setFirstName] = React.useState(user.firstName);
   const [lastName, setLastName] = React.useState(user.lastName);
-  const [country, setCountry] = React.useState(user.country);
-  const [city, setCity] = React.useState(user.city);
   const [school, setSchool] = React.useState(user.school);
   const [bio, setbio] = React.useState(user.bio);
   const [preferredLanguage, setPreferredLanguage] = React.useState(user.preferredLanguage);
-  const [roleLabel, setRoleLabel] = React.useState<UserRole>(user.roleLabel);
   const [aiTeacherStyle, setAiTeacherStyle] = React.useState<AiTeacherStyleValue>(() =>
     normalizeTeacherStyle(user.aiTeacherStyle),
   );
@@ -139,11 +167,8 @@ export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
         firstName,
         lastName,
         bio,
-        country,
-        city,
         school,
         preferredLanguage,
-        roleLabel,
         aiTeacherStyle,
       }),
     });
@@ -296,16 +321,6 @@ export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
                 <Input value={user.email} readOnly disabled className="bg-zinc-50 text-zinc-600" />
                 <div className="text-xs text-zinc-500">Adresă de autentificare (contactează suportul pentru schimbare).</div>
               </div>
-              <div className="grid gap-1 sm:grid-cols-2 sm:gap-3">
-                <div className="grid gap-1">
-                  <label className="text-xs text-zinc-600">Țară</label>
-                  <Input value={country} onChange={(e) => setCountry(e.target.value)} name="country" />
-                </div>
-                <div className="grid gap-1">
-                  <label className="text-xs text-zinc-600">Oraș</label>
-                  <Input value={city} onChange={(e) => setCity(e.target.value)} name="city" />
-                </div>
-              </div>
               <div className="grid gap-1">
                 <label className="text-xs text-zinc-600">Școală / instituție</label>
                 <Input value={school} onChange={(e) => setSchool(e.target.value)} name="school" />
@@ -321,34 +336,14 @@ export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
                 />
                 <FieldError msg={fieldErrors.bio?.[0]} />
               </div>
-              <div className="grid gap-1 sm:grid-cols-2 sm:gap-3">
-                <div className="grid gap-1">
-                  <label className="text-xs text-zinc-600">Limbă preferată</label>
-                  <Input
-                    value={preferredLanguage}
-                    onChange={(e) => setPreferredLanguage(e.target.value)}
-                    placeholder="ex. ro, en"
-                    name="preferredLanguage"
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <label className="text-xs text-zinc-600">Rol</label>
-                  <select
-                    name="roleLabel"
-                    value={roleLabel}
-                    onChange={(e) => setRoleLabel(e.target.value as UserRole)}
-                    className="h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2"
-                  >
-                    {roleOptions.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                  {user.roleLabel === UserRole.TEACHER ? (
-                    <div className="text-xs text-zinc-500">Conturile de profesor nu pot reveni la Elev.</div>
-                  ) : null}
-                </div>
+              <div className="grid gap-1">
+                <label className="text-xs text-zinc-600">Limbă preferată</label>
+                <Input
+                  value={preferredLanguage}
+                  onChange={(e) => setPreferredLanguage(e.target.value)}
+                  placeholder="ex. ro, en"
+                  name="preferredLanguage"
+                />
               </div>
               <Button type="submit" disabled={pendingProfile}>
                 {pendingAvatar ? "Se încarcă fotografia…" : pendingProfile ? "Se salvează…" : "Salvează profilul"}
@@ -404,6 +399,10 @@ export function ProfileSettingsForm({ user }: { user: SettingsUserDTO }) {
             </form>
           </CardContent>
         </Card>
+
+        {user.roleLabel !== UserRole.TEACHER ? (
+          <TeacherRequestCard user={user} />
+        ) : null}
 
         <p className="text-center text-xs text-zinc-500">
           Membru din {new Date(user.createdAt).toLocaleDateString()}

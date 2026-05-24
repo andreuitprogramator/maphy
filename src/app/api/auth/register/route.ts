@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     return jsonError(400, "Date invalide", { issues: parsed.error.flatten().fieldErrors as object });
   }
 
-  const { username, email, password, firstName, lastName, country, city } = parsed.data;
+  const { username, email, password, firstName, lastName } = parsed.data;
   const emailNorm = email.toLowerCase();
 
   // Remove any unverified account with the same email/username so user can re-register
@@ -50,8 +50,6 @@ export async function POST(req: Request) {
         passwordHash,
         firstName,
         lastName,
-        country: country?.trim() ?? "",
-        city: city?.trim() ?? "",
         emailVerified: false,
       },
       select: { id: true, username: true, email: true },

@@ -31,8 +31,6 @@ export default function RegisterPage() {
       confirmPassword: String(fd.get("confirmPassword") ?? ""),
       firstName: String(fd.get("firstName") ?? "").trim(),
       lastName: String(fd.get("lastName") ?? "").trim(),
-      country: String(fd.get("country") ?? "").trim(),
-      city: String(fd.get("city") ?? "").trim(),
     };
 
     const res = await fetch("/api/auth/register", {
@@ -143,16 +141,6 @@ export default function RegisterPage() {
                 </div>
               </div>
               <div className="text-xs text-zinc-500">Minimum 8 caractere.</div>
-              <div className="grid gap-1 sm:grid-cols-2 sm:gap-2">
-                <div className="grid gap-1">
-                  <label className="text-xs text-zinc-600">Țară (opțional)</label>
-                  <Input name="country" autoComplete="country-name" />
-                </div>
-                <div className="grid gap-1">
-                  <label className="text-xs text-zinc-600">Oraș (opțional)</label>
-                  <Input name="city" autoComplete="address-level2" />
-                </div>
-              </div>
               {error ? <div className="text-sm text-red-600">{error}</div> : null}
               <Button disabled={pending} type="submit">
                 {pending ? "Se creează…" : "Creează cont"}

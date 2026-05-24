@@ -24,8 +24,6 @@ export const registerBodySchema = z
       .trim()
       .min(1, "Numele de familie este obligatoriu")
       .max(64, "Numele de familie este prea lung"),
-    country: z.string().trim().max(80).optional(),
-    city: z.string().trim().max(80).optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Parolele nu coincid",
@@ -37,8 +35,6 @@ export const profilePatchSchema = z.object({
   firstName: z.string().trim().min(1, "Prenumele este obligatoriu").max(64),
   lastName: z.string().trim().min(1, "Numele de familie este obligatoriu").max(64),
   bio: z.string().max(5000),
-  country: z.string().max(80),
-  city: z.string().max(80),
   school: z.string().max(200),
   preferredLanguage: z.string().max(32),
   roleLabel: z.nativeEnum(UserRole),

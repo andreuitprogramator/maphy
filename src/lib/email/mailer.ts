@@ -16,6 +16,40 @@ function createTransport() {
   });
 }
 
+export async function sendTeacherRequestEmail(args: {
+  firstName: string;
+  lastName: string;
+  username: string;
+  email: string;
+  approveUrl: string;
+}) {
+  const transport = createTransport();
+  const from = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "noreply@maphy.ro";
+  const to = "radu.pipernea@yahoo.com";
+
+  if (!transport) {
+    console.log(`[email] Teacher request from @${args.username}: ${args.approveUrl}`);
+    return;
+  }
+
+  await transport.sendMail({
+    from: `"Maphy" <${from}>`,
+    to,
+    subject: `Cerere profesor: ${args.firstName} ${args.lastName} (@${args.username})`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+        <h2 style="color:#111">Cerere acces profesor</h2>
+        <p><strong>Nume:</strong> ${args.firstName} ${args.lastName}</p>
+        <p><strong>Username:</strong> @${args.username}</p>
+        <p><strong>Email:</strong> ${args.email}</p>
+        <a href="${args.approveUrl}" style="display:inline-block;margin:16px 0;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
+          Aprobă cererea
+        </a>
+      </div>
+    `,
+  });
+}
+
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   const transport = createTransport();
   const from = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "noreply@maphy.ro";
