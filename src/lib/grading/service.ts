@@ -1019,13 +1019,30 @@ function safeSlice(text: string | null | undefined, maxChars: number): string {
 }
 
 async function tryReadPublicFileBytes(publicUrl: string | null | undefined): Promise<Uint8Array | null> {
-  if (!publicUrl || !publicUrl.startsWith("/")) return null;
+  if (!publicUrl) return null;
   try {
-    const diskPath = publicUrlToDiskPath(publicUrl);
-    return new Uint8Array(await readFile(diskPath));
+    if (publicUrl.startsWith("http://") || publicUrl.startsWith("https://")) {
+      const res = await fetch(publicUrl);
+      if (!res.ok) return null;
+      return new Uint8Array(await res.arrayBuffer());
+    }
+    if (publicUrl.startsWith("/")) {
+      const diskPath = publicUrlToDiskPath(publicUrl);
+      return new Uint8Array(await readFile(diskPath));
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+async function fetchImageBytes(imageUrl: string): Promise<Uint8Array> {
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    const res = await fetch(imageUrl);
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+  return new Uint8Array(await readFile(imageUrlToDiskPath(imageUrl)));
 }
 
 export async function gradeSubmission(submissionId: string) {
@@ -1089,10 +1106,9 @@ export async function gradeSubmission(submissionId: string) {
   if (!submission) throw new Error("Submission not found");
   if (submission.status !== "PENDING") return submission;
 
-  const diskPath = imageUrlToDiskPath(submission.imageUrl);
   let imageBytes: Uint8Array;
   try {
-    imageBytes = new Uint8Array(await readFile(diskPath));
+    imageBytes = await fetchImageBytes(submission.imageUrl);
   } catch {
     return prisma.submission.update({
       where: { id: submission.id },
@@ -1523,10 +1539,9 @@ export async function gradeSubmissionSimple(submissionId: string) {
   if (submission.status !== "PENDING") return submission;
 
   // ── Citire imagine elev ──────────────────────────────────────────────────
-  const diskPath = imageUrlToDiskPath(submission.imageUrl);
   let imageBytes: Uint8Array;
   try {
-    imageBytes = new Uint8Array(await readFile(diskPath));
+    imageBytes = await fetchImageBytes(submission.imageUrl);
   } catch {
     return prisma.submission.update({
       where: { id: submission.id },

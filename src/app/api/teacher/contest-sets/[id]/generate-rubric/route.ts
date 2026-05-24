@@ -19,11 +19,20 @@ function detectMimeType(bytes: Uint8Array): string {
 }
 
 async function loadImageBytes(fileUrl: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
-  if (!fileUrl.startsWith("/")) return null;
   try {
-    const bytes = new Uint8Array(await readFile(publicUrlToDiskPath(fileUrl)));
-    const mimeType = detectMimeType(bytes);
-    return mimeType.startsWith("image/") ? { bytes, mimeType } : null;
+    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+      const res = await fetch(fileUrl);
+      if (!res.ok) return null;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const mimeType = detectMimeType(bytes);
+      return mimeType.startsWith("image/") ? { bytes, mimeType } : null;
+    }
+    if (fileUrl.startsWith("/")) {
+      const bytes = new Uint8Array(await readFile(publicUrlToDiskPath(fileUrl)));
+      const mimeType = detectMimeType(bytes);
+      return mimeType.startsWith("image/") ? { bytes, mimeType } : null;
+    }
+    return null;
   } catch {
     return null;
   }
