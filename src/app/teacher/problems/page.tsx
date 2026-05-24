@@ -1,32 +1,45 @@
+"use client";
+
+import * as React from "react";
 import Link from "next/link";
-import { ProblemStatus } from "@prisma/client";
-import { prisma } from "@/lib/db/prisma";
-import { requireTeacher } from "@/lib/auth/require-teacher";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 
-export const dynamic = "force-dynamic";
+type Problem = {
+  id: string;
+  title: string;
+  status: "DRAFT" | "PUBLISHED";
+  year: number;
+  subject: string;
+  phase: string;
+  class: number;
+  difficulty: number;
+  updatedAt: string;
+};
 
-export default async function TeacherProblemsListPage() {
-  const teacher = await requireTeacher();
-  if (!teacher) redirect("/");
+export default function TeacherProblemsListPage() {
+  const router = useRouter();
+  const [problems, setProblems] = React.useState<Problem[]>([]);
+  const [loading, setLoading] = React.useState(true);
 
-  const problems = await prisma.problem.findMany({
-    where: { createdById: teacher.id },
-    orderBy: [{ updatedAt: "desc" }],
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      year: true,
-      subject: true,
-      phase: true,
-      class: true,
-      difficulty: true,
-      updatedAt: true,
-    },
-  });
+  React.useEffect(() => {
+    fetch("/api/teacher/problems")
+      .then((r) => r.json())
+      .then((d) => { setProblems(d.problems ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function deleteProblem(id: string, title: string) {
+    if (!confirm(`Ești sigur că vrei să ștergi "${title}"? Acțiunea este ireversibilă.`)) return;
+    const res = await fetch(`/api/teacher/problems/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setProblems((prev) => prev.filter((p) => p.id !== id));
+    } else {
+      const data = await res.json().catch(() => ({}));
+      alert(data?.error ?? "Ștergerea a eșuat");
+    }
+  }
 
   return (
     <div className="grid gap-6">
@@ -53,10 +66,12 @@ export default async function TeacherProblemsListPage() {
 
       <Card>
         <CardHeader>
-          <div className="text-sm font-medium text-zinc-900">Toate ({problems.length})</div>
+          <div className="text-sm font-medium text-zinc-900">
+            {loading ? "Se încarcă…" : `Toate (${problems.length})`}
+          </div>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {problems.length === 0 ? (
+          {!loading && problems.length === 0 ? (
             <div className="py-8 text-center text-sm text-zinc-600">Nicio problemă încă. Creează prima ta problemă.</div>
           ) : (
             problems.map((p) => (
@@ -70,21 +85,20 @@ export default async function TeacherProblemsListPage() {
                     <span
                       className={cn(
                         "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
-                        p.status === ProblemStatus.PUBLISHED
+                        p.status === "PUBLISHED"
                           ? "bg-emerald-100 text-emerald-900"
                           : "bg-zinc-200 text-zinc-800",
                       )}
                     >
-                      {p.status === ProblemStatus.PUBLISHED ? "Publicat" : "Ciornă"}
+                      {p.status === "PUBLISHED" ? "Publicat" : "Ciornă"}
                     </span>
                   </div>
                   <div className="text-xs text-zinc-600">
-                    {p.subject === "MATH" ? "Matematică" : "Fizică"} · {p.year} · Clasa {p.class} · {p.phase.toLowerCase()}{" "}
-                    · dificultate {p.difficulty}/10 · Actualizat {new Date(p.updatedAt).toLocaleString()}
+                    {p.subject === "MATH" ? "Matematică" : p.subject === "PHYSICS" ? "Fizică" : "Chimie"} · {p.year} · Clasa {p.class} · {p.phase.toLowerCase()} · dificultate {p.difficulty}/10 · Actualizat {new Date(p.updatedAt).toLocaleString()}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {p.status === ProblemStatus.PUBLISHED ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  {p.status === "PUBLISHED" ? (
                     <Link
                       href={`/problems/${p.id}`}
                       className="text-xs font-medium text-[color:var(--accent)] hover:underline"
@@ -95,6 +109,13 @@ export default async function TeacherProblemsListPage() {
                   <Link href={`/teacher/problems/${p.id}/edit`} className="text-xs font-medium text-zinc-700 hover:underline">
                     Editează
                   </Link>
+                  <button
+                    onClick={() => deleteProblem(p.id, p.title)}
+                    className="text-xs font-medium text-red-600 hover:underline"
+                    type="button"
+                  >
+                    Șterge
+                  </button>
                 </div>
               </div>
             ))

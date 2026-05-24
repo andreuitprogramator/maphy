@@ -10,6 +10,29 @@ import {
 import { rubricItemsToGradingRubricText } from "@/lib/problems/rubric-format";
 import { notifyUsersNewProblemPublished } from "@/lib/notifications/service";
 
+export async function GET() {
+  const teacher = await requireTeacher();
+  if (!teacher) return jsonError(403, "Teachers only");
+
+  const problems = await prisma.problem.findMany({
+    where: { createdById: teacher.id },
+    orderBy: [{ updatedAt: "desc" }],
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      year: true,
+      subject: true,
+      phase: true,
+      class: true,
+      difficulty: true,
+      updatedAt: true,
+    },
+  });
+
+  return jsonOk({ problems });
+}
+
 export async function POST(req: Request) {
   const teacher = await requireTeacher();
   if (!teacher) return jsonError(403, "Teachers only");
