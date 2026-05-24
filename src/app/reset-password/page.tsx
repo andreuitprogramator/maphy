@@ -7,6 +7,7 @@ import { Container } from "@/components/layout/container";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Suspense } from "react";
 
 function ResetPasswordForm({ token }: { token: string }) {
   const router = useRouter();
@@ -57,7 +58,7 @@ function ResetPasswordForm({ token }: { token: string }) {
   );
 }
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const params = useSearchParams();
   const token = params.get("token");
 
@@ -83,5 +84,13 @@ export default function ResetPasswordPage() {
         </Card>
       </div>
     </Container>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }
