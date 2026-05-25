@@ -69,30 +69,8 @@ export function validateContestSetPublish(input: ContestSetSaveInput): string[] 
   }
 
   if (input.status === ProblemStatus.PUBLISHED) {
-    for (const row of input.problems) {
-      const hasStatementAsset = input.attachments.some(
-        (a) =>
-          a.role === "PROBLEM_STATEMENT" &&
-          a.problemOrderNumber === row.orderNumber &&
-          (a.fileType == null || a.fileType === "IMAGE"),
-      );
-      const hasRubricAsset = input.attachments.some(
-        (a) =>
-          a.role === "PROBLEM_RUBRIC" &&
-          a.problemOrderNumber === row.orderNumber &&
-          (a.fileType == null || a.fileType === "IMAGE"),
-      );
-
-      if (!hasStatementAsset) {
-        errors.push(
-          `Problema ${row.orderNumber}: încarcă cel puțin o poză cu cerința (secțiunea mov „Poze cerință").`,
-        );
-      }
-      if (!hasRubricAsset) {
-        errors.push(
-          `Problema ${row.orderNumber}: încarcă cel puțin o poză cu baremul (secțiunea mov „Poze barem").`,
-        );
-      }
+    if (!input.rubricText?.trim()) {
+      errors.push("Adaugă textul baremului (copy-paste din PDF barem) înainte de publicare.");
     }
   }
   return errors;

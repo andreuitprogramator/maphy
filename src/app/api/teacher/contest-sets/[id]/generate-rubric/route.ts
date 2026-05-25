@@ -4,33 +4,20 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { jsonError, jsonOk } from "@/lib/api/response";
 import { requireTeacher } from "@/lib/auth/require-teacher";
-import { generateMasterRubric, type MasterRubric } from "@/lib/ai/grader-simple";
+import { generateMasterRubric, detectSubjectPageRanges, type MasterRubric } from "@/lib/ai/grader-simple";
 
-function publicUrlToDiskPath(publicUrl: string) {
-  const clean = publicUrl.startsWith("/") ? publicUrl.slice(1) : publicUrl;
-  return path.join(process.cwd(), "public", ...clean.split("/"));
-}
-
-function detectMimeType(bytes: Uint8Array): string {
-  if (bytes[0] === 0x89 && bytes[1] === 0x50) return "image/png";
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
-  if (bytes[0] === 0x52 && bytes[1] === 0x49) return "image/webp";
-  return "image/jpeg";
-}
-
-async function loadImageBytes(fileUrl: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+async function loadPdfBytes(publicUrl: string | null | undefined): Promise<Uint8Array | null> {
+  if (!publicUrl) return null;
   try {
-    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
-      const res = await fetch(fileUrl);
+    if (publicUrl.startsWith("http://") || publicUrl.startsWith("https://")) {
+      const res = await fetch(publicUrl);
       if (!res.ok) return null;
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      const mimeType = detectMimeType(bytes);
-      return mimeType.startsWith("image/") ? { bytes, mimeType } : null;
+      return new Uint8Array(await res.arrayBuffer());
     }
-    if (fileUrl.startsWith("/")) {
-      const bytes = new Uint8Array(await readFile(publicUrlToDiskPath(fileUrl)));
-      const mimeType = detectMimeType(bytes);
-      return mimeType.startsWith("image/") ? { bytes, mimeType } : null;
+    if (publicUrl.startsWith("/")) {
+      const clean = publicUrl.slice(1);
+      const diskPath = path.join(process.cwd(), "public", ...clean.split("/"));
+      return new Uint8Array(await readFile(diskPath));
     }
     return null;
   } catch {
@@ -39,7 +26,11 @@ async function loadImageBytes(fileUrl: string): Promise<{ bytes: Uint8Array; mim
 }
 
 const BodySchema = z.object({
-  orderNumber: z.number().int().min(1).max(20),
+  totalProblems: z.number().int().min(1).max(20),
+});
+
+const DeleteBodySchema = z.object({
+  orderNumber: z.number().int().min(1).max(20).optional(),
 });
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -49,79 +40,101 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   const body = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(body);
-  if (!parsed.success) return jsonError(400, "orderNumber invalid");
+  if (!parsed.success) return jsonError(400, "totalProblems invalid");
 
-  const { orderNumber } = parsed.data;
+  const { totalProblems } = parsed.data;
 
   const contestSet = await prisma.contestSet.findFirst({
     where: { id, createdById: teacher.id },
-    select: {
-      id: true,
-      attachments: {
-        where: {
-          fileType: "IMAGE",
-          role: { in: ["PROBLEM_STATEMENT", "PROBLEM_RUBRIC"] },
-          problemOrderNumber: orderNumber,
-        },
-        select: { fileUrl: true, role: true },
-        orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }],
-      },
-      problems: {
-        where: { orderNumber },
-        select: { id: true, statementTextOverride: true },
-      },
-    },
+    select: { id: true, statementText: true, rubricText: true, statementPdfUrl: true, rubricPdfUrl: true },
   });
 
   if (!contestSet) return jsonError(404, "Contest set not found");
 
-  const statementAtts = contestSet.attachments.filter((a) => a.role === "PROBLEM_STATEMENT");
-  const rubricAtts = contestSet.attachments.filter((a) => a.role === "PROBLEM_RUBRIC");
+  const statementText = contestSet.statementText ?? "";
+  const rubricText = contestSet.rubricText ?? "";
 
-  if (rubricAtts.length === 0) {
-    return jsonError(400, "Adaugă mai întâi pozele baremului pentru această problemă.");
+  if (!rubricText.trim() && !contestSet.rubricPdfUrl) {
+    return jsonError(400, "Adaugă textul baremului sau încarcă PDF-ul baremului înainte de generate.");
   }
 
-  const [statementImages, rubricImages] = await Promise.all([
-    Promise.all(statementAtts.slice(0, 8).map((a) => loadImageBytes(a.fileUrl))).then(
-      (r) => r.filter(Boolean) as Array<{ bytes: Uint8Array; mimeType: string }>,
-    ),
-    Promise.all(rubricAtts.slice(0, 8).map((a) => loadImageBytes(a.fileUrl))).then(
-      (r) => r.filter(Boolean) as Array<{ bytes: Uint8Array; mimeType: string }>,
-    ),
+  // Load PDF bytes — AI reads them natively (formulas, layout intact)
+  const [statementPdfBytes, rubricPdfBytes] = await Promise.all([
+    loadPdfBytes(contestSet.statementPdfUrl),
+    loadPdfBytes(contestSet.rubricPdfUrl),
   ]);
 
-  const problem = contestSet.problems[0];
-  const statement = problem?.statementTextOverride ?? "(Cerința este în imaginile atașate.)";
+  const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+                 "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
 
-  let rubric: MasterRubric;
+  // Detectează paginile fiecărui subiect din barem (pentru a evita overlap între pagini)
+  const pageRanges = rubricPdfBytes
+    ? await detectSubjectPageRanges({ rubricPdfBytes, totalProblems })
+    : {};
+
+  console.log("[generate-rubric] page ranges detected:", JSON.stringify(pageRanges));
+
+  // Generate IRG for each problem in parallel
+  let rubrics: MasterRubric[];
   try {
-    rubric = await generateMasterRubric({
-      statement,
-      rubricText: "(Baremul este în imaginile atașate.)",
-      statementImages,
-      rubricImages,
-    });
+    rubrics = await Promise.all(
+      Array.from({ length: totalProblems }, (_, i) => i + 1).map((n) => {
+        const roman = ROMAN[n - 1] ?? String(n);
+        const pages = pageRanges[n];
+        const pageNote = pages
+          ? `Subiectul ${roman} se află pe paginile ${pages.startPage}–${pages.endPage} din PDF. CITEȘTE EXCLUSIV aceste pagini și IGNORĂ restul paginilor.`
+          : "";
+        const statementInstruction =
+          `⚠️ INSTRUCȚIUNE CRITICĂ: Extrage EXCLUSIV cerința Subiectului ${roman} ` +
+          `(al ${n}-lea subiect din ${totalProblems} total). ` +
+          `IGNORĂ complet Subiectele ${ROMAN.slice(0, totalProblems).filter((_, i) => i !== n - 1).join(", ")}. ` +
+          `Răspunde ca și cum documentul conține DOAR Subiectul ${roman}.`;
+        const rubricInstruction =
+          `⚠️ INSTRUCȚIUNE CRITICĂ: Extrage EXCLUSIV baremul Subiectului ${roman} ` +
+          `(al ${n}-lea subiect din ${totalProblems} total). ` +
+          (pageNote ? `${pageNote} ` : "") +
+          `IGNORĂ complet baremul Subiectelor ${ROMAN.slice(0, totalProblems).filter((_, i) => i !== n - 1).join(", ")}. ` +
+          `Creează criterii DOAR pentru Subiectul ${roman}.`;
+        return generateMasterRubric({
+          statement: statementInstruction + (statementText.trim() ? `\n\n${statementText}` : ""),
+          rubricText: rubricInstruction + (rubricText.trim() ? `\n\n${rubricText}` : ""),
+          statementImages: [],
+          rubricImages: [],
+          statementPdfBytes: statementPdfBytes ?? undefined,
+          rubricPdfBytes: rubricPdfBytes ?? undefined,
+          rubricPageHint: pageNote,
+        });
+      }),
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[generate-rubric] AI error:", msg);
-    return jsonError(500, "Generarea rubricii a eșuat. Încearcă din nou.");
+    if (msg.includes("503") || msg.includes("Service Unavailable") || msg.includes("overloaded"))
+      return jsonError(503, "Serviciul AI este momentan supraîncărcat. Încearcă din nou în 30 de secunde.");
+    if (msg.includes("429") || msg.includes("Too Many Requests") || msg.includes("quota"))
+      return jsonError(429, "Limita de cereri AI a fost depășită. Încearcă din nou în câteva minute.");
+    return jsonError(500, "Generarea rubricilor a eșuat. Încearcă din nou.");
   }
 
-  // Save to DB — upsert so it works even if the problem row doesn't exist yet
-  await prisma.contestSetProblem.upsert({
-    where: { contestSetId_orderNumber: { contestSetId: contestSet.id, orderNumber } },
-    create: {
-      contestSetId: contestSet.id,
-      orderNumber,
-      title: `Problema ${orderNumber}`,
-      maxScore: 100,
-      aiRubricJson: JSON.stringify(rubric),
-    },
-    update: { aiRubricJson: JSON.stringify(rubric) },
-  });
+  // Save each rubric to its ContestSetProblem
+  await Promise.all(
+    rubrics.map((rubric, i) => {
+      const orderNumber = i + 1;
+      return prisma.contestSetProblem.upsert({
+        where: { contestSetId_orderNumber: { contestSetId: contestSet.id, orderNumber } },
+        create: {
+          contestSetId: contestSet.id,
+          orderNumber,
+          title: `Problema ${orderNumber}`,
+          maxScore: 100,
+          aiRubricJson: JSON.stringify(rubric),
+        },
+        update: { aiRubricJson: JSON.stringify(rubric) },
+      });
+    }),
+  );
 
-  return jsonOk({ rubric });
+  return jsonOk({ rubrics, totalProblems });
 }
 
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -130,21 +143,33 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
 
   const { id } = await ctx.params;
   const body = await req.json().catch(() => null);
-  const parsed = BodySchema.safeParse(body);
-  if (!parsed.success) return jsonError(400, "orderNumber invalid");
+  const parsed = DeleteBodySchema.safeParse(body);
 
-  const { orderNumber } = parsed.data;
-
-  const problem = await prisma.contestSetProblem.findFirst({
-    where: { contestSet: { id, createdById: teacher.id }, orderNumber },
+  const contestSet = await prisma.contestSet.findFirst({
+    where: { id, createdById: teacher.id },
     select: { id: true },
   });
-  if (!problem) return jsonError(404, "Problema nu a fost găsită");
+  if (!contestSet) return jsonError(404, "Contest set not found");
 
-  await prisma.contestSetProblem.update({
-    where: { id: problem.id },
-    data: { aiRubricJson: null },
-  });
+  if (parsed.success && parsed.data.orderNumber != null) {
+    // Delete rubric for a specific problem
+    const problem = await prisma.contestSetProblem.findFirst({
+      where: { contestSetId: id, orderNumber: parsed.data.orderNumber },
+      select: { id: true },
+    });
+    if (problem) {
+      await prisma.contestSetProblem.update({
+        where: { id: problem.id },
+        data: { aiRubricJson: null },
+      });
+    }
+  } else {
+    // Delete all rubrics
+    await prisma.contestSetProblem.updateMany({
+      where: { contestSetId: id },
+      data: { aiRubricJson: null },
+    });
+  }
 
   return jsonOk({ ok: true });
 }

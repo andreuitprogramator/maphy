@@ -26,7 +26,9 @@ export default async function EditContestSetPage({ params }: { params: Promise<{
     shortSummary: p.shortSummary ?? "",
     maxScore: p.maxScore,
   }));
-  const problems = [1, 2, 3].map((n) => {
+  const problemCount = Math.max(existingProblems.length, 3);
+  const problems = Array.from({ length: problemCount }, (_, i) => {
+    const n = i + 1;
     const found = existingProblems.find((p) => p.orderNumber === n);
     return found ?? { orderNumber: n, title: `Problema ${n}`, shortSummary: "", maxScore: 100 };
   });
@@ -52,10 +54,10 @@ export default async function EditContestSetPage({ params }: { params: Promise<{
         summary: set.summary ?? "",
         statementMode: "PDF_ONLY",
         statementDisplayMode: "PDF_FIRST",
-        statementText: "",
+        statementText: set.statementText ?? "",
         statementPdfUrl: set.statementPdfUrl ?? "",
         rubricPdfUrl: set.rubricPdfUrl ?? "",
-        rubricText: "",
+        rubricText: set.rubricText ?? "",
         leaderboardPdfUrl: set.leaderboardPdfUrl ?? "",
         status: set.status,
         problems,

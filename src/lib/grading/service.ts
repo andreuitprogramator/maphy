@@ -7,6 +7,7 @@ import {
   validateSimpleResult,
   computeSimpleScore,
   detectIsBaremImage,
+  detectIsUnrelated,
   type MasterRubric,
 } from "@/lib/ai/grader-simple";
 import { AiTeacherStyle, Prisma } from "@prisma/client";
@@ -1115,7 +1116,7 @@ export async function gradeSubmission(submissionId: string) {
       where: { id: submission.id },
       data: {
         status: "FAILED",
-        aiFeedback: "Internal grading error: image file missing.",
+        aiFeedback: "Eroare internă: fișierul imagine lipsește.",
         reviewedAt: new Date(),
       },
     });
@@ -1127,7 +1128,7 @@ export async function gradeSubmission(submissionId: string) {
       where: { id: submission.id },
       data: {
         status: "FAILED",
-        aiFeedback: "Internal grading error: unsupported image format.",
+        aiFeedback: "Eroare internă: format imagine nesuportat.",
         reviewedAt: new Date(),
       },
     });
@@ -1223,7 +1224,7 @@ export async function gradeSubmission(submissionId: string) {
       where: { id: submission.id },
       data: {
         status: "FAILED",
-        aiFeedback: "Internal grading error: submission target missing.",
+        aiFeedback: "Eroare internă: problema țintă lipsește.",
         reviewedAt: new Date(),
       },
     });
@@ -1400,7 +1401,7 @@ export async function gradeSubmission(submissionId: string) {
       where: { id: submission.id },
       data: {
         status: "FAILED",
-        aiFeedback: "Internal grading error: model output invalid or request failed.",
+        aiFeedback: "Eroare internă: corectarea AI a eșuat.",
         reviewedAt: new Date(),
       },
     });
@@ -1436,7 +1437,7 @@ export async function gradeSubmission(submissionId: string) {
     );
     return prisma.submission.update({
       where: { id: submission.id },
-      data: { status: "FAILED", aiFeedback: "Internal grading error: invalid rubric breakdown.", reviewedAt: new Date() },
+      data: { status: "FAILED", aiFeedback: "Eroare internă: date de corectare invalide.", reviewedAt: new Date() },
     });
   }
   // Scorul final:
@@ -1521,6 +1522,7 @@ export async function gradeSubmissionSimple(submissionId: string) {
             select: {
               id: true,
               title: true,
+              statementText: true,
               statementPdfUrl: true,
               rubricPdfUrl: true,
               rubricText: true,
@@ -1558,19 +1560,33 @@ export async function gradeSubmissionSimple(submissionId: string) {
     });
   }
 
-  // ── Detecție barem ───────────────────────────────────────────────────────
-  if (submission.user.username !== "pip") {
-    const isBarem = await detectIsBaremImage({ bytes: imageBytes, mimeType });
-    if (isBarem) {
-      return prisma.submission.update({
-        where: { id: submission.id },
-        data: {
-          status: "FAILED",
-          aiFeedback: "Nu ai voie să dai upload la barem ca soluție.",
-          reviewedAt: new Date(),
-        },
-      });
-    }
+  // ── Detecții preliminare (paralel) ───────────────────────────────────────
+  const isNotPip = submission.user.username !== "pip";
+  const [isBarem, isUnrelated] = await Promise.all([
+    isNotPip ? detectIsBaremImage({ bytes: imageBytes, mimeType }) : Promise.resolve(false),
+    detectIsUnrelated({ bytes: imageBytes, mimeType }),
+  ]);
+
+  if (isBarem) {
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: {
+        status: "FAILED",
+        aiFeedback: "Nu ai voie să trimiți baremul ca soluție.",
+        reviewedAt: new Date(),
+      },
+    });
+  }
+
+  if (isUnrelated) {
+    return prisma.submission.update({
+      where: { id: submission.id },
+      data: {
+        status: "FAILED",
+        aiFeedback: "Conținutul imaginii nu are legătură cu problema.",
+        reviewedAt: new Date(),
+      },
+    });
   }
 
   const extraUrls: string[] = (() => {
@@ -1610,13 +1626,17 @@ export async function gradeSubmissionSimple(submissionId: string) {
       ),
   );
 
-  // Text enunț
+  // Text enunț — prioritate: text lipit manual > secțiune extrasă din PDF > text PDF complet
+  const contestStatementManualText = submission.contestSetProblem?.contestSet.statementText ?? null;
   const contestStatementPdfText =
-    submission.contestSetProblem && !hasProblemStatementImages
+    submission.contestSetProblem && !hasProblemStatementImages && !contestStatementManualText
       ? await extractPdfTextFromPublicUrl(submission.contestSetProblem.contestSet.statementPdfUrl)
       : null;
   const statementSection = submission.contestSetProblem
-    ? extractTargetProblemSection(contestStatementPdfText, submission.contestSetProblem.orderNumber)
+    ? extractTargetProblemSection(
+        contestStatementManualText ?? contestStatementPdfText,
+        submission.contestSetProblem.orderNumber,
+      )
     : null;
 
   const statement = submission.problem
@@ -1629,6 +1649,7 @@ export async function gradeSubmissionSimple(submissionId: string) {
         : safeSlice(
             statementSection ??
               submission.contestSetProblem.statementTextOverride ??
+              contestStatementManualText ??
               contestStatementPdfText ??
               "",
             12000,
@@ -1693,15 +1714,17 @@ export async function gradeSubmissionSimple(submissionId: string) {
     }
   }
 
-  // Barem final trimis la AI
+  // Barem final trimis la AI — prioritate: text lipit manual > PDF extras
+  const contestRubricManualText = submission.contestSetProblem?.contestSet.rubricText ?? null;
   const contestRubricPdfText =
-    submission.contestSetProblem && !hasProblemRubricImages
+    submission.contestSetProblem && !hasProblemRubricImages && !contestRubricManualText
       ? await extractPdfTextFromPublicUrl(submission.contestSetProblem.contestSet.rubricPdfUrl)
       : null;
-  const contestRubricText = submission.contestSetProblem?.contestSet.rubricText ?? null;
   const rubricProblemSection = submission.contestSetProblem
-    ? extractTargetProblemSection(contestRubricPdfText, submission.contestSetProblem.orderNumber) ??
-      extractTargetProblemSection(contestRubricText, submission.contestSetProblem.orderNumber)
+    ? extractTargetProblemSection(
+        contestRubricManualText ?? contestRubricPdfText,
+        submission.contestSetProblem.orderNumber,
+      )
     : null;
 
   const finalRubricText =
@@ -1713,7 +1736,7 @@ export async function gradeSubmissionSimple(submissionId: string) {
       : submission.contestSetProblem
         ? hasProblemRubricImages
           ? "(Baremul este atașat ca imagini — criteriile și punctajele sunt vizibile în imaginile atașate.)"
-          : safeSlice(rubricProblemSection ?? contestRubricText ?? contestRubricPdfText ?? "", 16000)
+          : safeSlice(rubricProblemSection ?? contestRubricManualText ?? contestRubricPdfText ?? "", 16000)
         : "");
 
   if (!finalRubricText) {

@@ -62,27 +62,18 @@ function autoTitle(subject: Subject, stage: Stage, year: number): string {
     : `Olimpiada de ${sub} - Etapa ${label} ${year}`;
 }
 
-function AttachmentList({ items, onRemove }: { items: AttachmentRow[]; onRemove: (id: string) => void }) {
-  if (items.length === 0) return <p className="text-xs text-zinc-500">Niciun fișier încărcat.</p>;
-  return (
-    <ul className="grid gap-1">
-      {items.map((a) => (
-        <li key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs">
-          <a href={a.fileUrl} target="_blank" rel="noreferrer" className="truncate font-medium text-[color:var(--accent)] underline">
-            {a.originalName}
-          </a>
-          <button type="button" className="shrink-0 text-red-600 hover:underline" onClick={() => onRemove(a.id)}>
-            Șterge
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
+function makeProblems(count: number, existing: ProblemRow[]): ProblemRow[] {
+  return Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    const found = existing.find((p) => p.orderNumber === n);
+    return found ?? { orderNumber: n, title: `Problema ${n}`, shortSummary: "", maxScore: 100 };
+  });
 }
 
 export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial }) {
   const router = useRouter();
   const [form, setForm] = React.useState(initial);
+  const [problemCount, setProblemCount] = React.useState(initial.problems.length || 3);
   const [titleEdited, setTitleEdited] = React.useState(!!initial.id);
   const [pending, setPending] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
@@ -99,40 +90,17 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
     }
     return init;
   });
-  const [rubricsLoading, setRubricsLoading] = React.useState<Record<number, boolean>>({});
+  const [generating, setGenerating] = React.useState(false);
+  const [generatedCount, setGeneratedCount] = React.useState<number | null>(null);
 
-  async function generateRubric(orderNumber: number) {
-    const id = form.id ?? await ensureDraft();
-    if (!id) return;
-    setRubricsLoading((prev) => ({ ...prev, [orderNumber]: true }));
-    try {
-      const res = await fetch(`/api/teacher/contest-sets/${id}/generate-rubric`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ orderNumber }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data?.error ?? "Generarea rubricii a eșuat.");
-        return;
-      }
-      setRubrics((prev) => ({ ...prev, [orderNumber]: data.rubric as MasterRubric }));
-    } finally {
-      setRubricsLoading((prev) => ({ ...prev, [orderNumber]: false }));
-    }
-  }
+  // Keep problems array in sync with problemCount
+  React.useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      problems: makeProblems(problemCount, prev.problems),
+    }));
+  }, [problemCount]);
 
-  async function clearRubric(orderNumber: number) {
-    if (!form.id) return;
-    await fetch(`/api/teacher/contest-sets/${form.id}/generate-rubric`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ orderNumber }),
-    });
-    setRubrics((prev) => ({ ...prev, [orderNumber]: null }));
-  }
-
-  // Auto-update title when subject/stage/year change (unless teacher manually edited it)
   React.useEffect(() => {
     if (!titleEdited) {
       setForm((prev) => ({ ...prev, title: autoTitle(prev.subject, prev.stage, prev.year) }));
@@ -143,9 +111,8 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function ensureDraft(): Promise<string | null> {
-    if (form.id) return form.id;
-    const payload = {
+  function buildPayload(targetStatus: string) {
+    return {
       title: form.title || autoTitle(form.subject, form.stage, form.year),
       subject: form.subject,
       competitionName: form.title || autoTitle(form.subject, form.stage, form.year),
@@ -154,14 +121,28 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
       stage: form.stage,
       statementMode: "PDF_ONLY",
       statementDisplayMode: "PDF_FIRST",
-      status: "DRAFT",
+      statementText: form.statementText?.trim() || null,
+      statementPdfUrl: form.statementPdfUrl || null,
+      rubricPdfUrl: form.rubricPdfUrl || null,
+      rubricText: form.rubricText?.trim() || null,
+      leaderboardPdfUrl: form.leaderboardPdfUrl || null,
+      status: isPublished ? ProblemStatus.PUBLISHED : targetStatus,
       problems: form.problems.map((p, i) => ({
         orderNumber: p.orderNumber || i + 1,
         title: p.title || `Problema ${i + 1}`,
         maxScore: 100,
       })),
-      attachments: [],
+      attachments: form.attachments.map((a) => ({
+        role: a.role,
+        fileType: a.fileType ?? (a.mimeType?.startsWith("image/") ? "IMAGE" : "PDF"),
+        problemOrderNumber: a.problemOrderNumber ?? null,
+      })),
     };
+  }
+
+  async function ensureDraft(): Promise<string | null> {
+    if (form.id) return form.id;
+    const payload = buildPayload("DRAFT");
     const res = await fetch("/api/teacher/contest-sets", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -179,7 +160,73 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
     return id;
   }
 
-  async function upload(role: AttachmentRole, file: File, options?: { problemOrderNumber?: number }) {
+  async function saveSilent(): Promise<string | null> {
+    const id = await ensureDraft();
+    if (!id) return null;
+    const payload = buildPayload("DRAFT");
+    const res = await fetch(`/api/teacher/contest-sets/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data?.error ?? "Nu s-a putut salva textele.");
+      return null;
+    }
+    return id;
+  }
+
+  async function generateAllRubrics() {
+    if (!form.rubricText?.trim()) {
+      setError("Adaugă mai întâi textul baremului (copy-paste din PDF).");
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    const id = await saveSilent();
+    if (!id) return;
+
+    setGenerating(true);
+    setGeneratedCount(null);
+    try {
+      const res = await fetch(`/api/teacher/contest-sets/${id}/generate-rubric`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ totalProblems: problemCount }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error ?? "Generarea rubricilor a eșuat.");
+        return;
+      }
+      const generated = data.rubrics as MasterRubric[];
+      const newRubrics: Record<number, MasterRubric | null> = {};
+      generated.forEach((r, i) => { newRubrics[i + 1] = r; });
+      setRubrics(newRubrics);
+      setGeneratedCount(generated.length);
+      if (generated.length !== problemCount) {
+        setError(`AI-ul a generat ${generated.length} rubrici, dar ai specificat ${problemCount} probleme. Verifică textul sau regenerează.`);
+      } else {
+        setInfo(`${generated.length} rubrici generate cu succes.`);
+      }
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function clearAllRubrics() {
+    if (!form.id) return;
+    await fetch(`/api/teacher/contest-sets/${form.id}/generate-rubric`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    setRubrics({});
+    setGeneratedCount(null);
+  }
+
+  async function upload(role: AttachmentRole, file: File) {
     setUploading(true);
     setError(null);
     try {
@@ -188,7 +235,6 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
       const fd = new FormData();
       fd.set("role", role);
       fd.set("file", file);
-      if (options?.problemOrderNumber != null) fd.set("problemOrderNumber", String(options.problemOrderNumber));
       const res = await fetch(`/api/teacher/contest-sets/${id}/attachments`, { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data?.error ?? `Eroare ${res.status} la încărcare.`); return; }
@@ -198,7 +244,29 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
       if (role === "STATEMENT") patch("statementPdfUrl", att.fileUrl);
       if (role === "RUBRIC") patch("rubricPdfUrl", att.fileUrl);
       if (role === "LEADERBOARD") patch("leaderboardPdfUrl", att.fileUrl);
-      setInfo(`Încărcat: ${att.originalName}`);
+
+      if (role === "STATEMENT" || role === "RUBRIC") {
+        setInfo(`Încărcat: ${att.originalName} — extrag textul...`);
+        try {
+          const extractRes = await fetch("/api/teacher/extract-pdf-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: att.fileUrl }),
+          });
+          const extractData = await extractRes.json().catch(() => ({}));
+          if (extractRes.ok && extractData?.text) {
+            if (role === "STATEMENT") patch("statementText", extractData.text);
+            if (role === "RUBRIC") patch("rubricText", extractData.text);
+            setInfo(`Încărcat: ${att.originalName} — text extras automat.`);
+          } else {
+            setInfo(`Încărcat: ${att.originalName} — extragere text eșuată, adaugă manual.`);
+          }
+        } catch {
+          setInfo(`Încărcat: ${att.originalName} — extragere text eșuată, adaugă manual.`);
+        }
+      } else {
+        setInfo(`Încărcat: ${att.originalName}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Eroare necunoscută la încărcare.");
     } finally {
@@ -224,49 +292,16 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
     });
   }
 
-  function problemImages(orderNumber: number, role: "PROBLEM_STATEMENT" | "PROBLEM_RUBRIC") {
-    return form.attachments.filter(
-      (a) => a.role === role && a.problemOrderNumber === orderNumber && (a.fileType === "IMAGE" || (a.mimeType ?? "").startsWith("image/")),
-    );
-  }
-
-  function problemAiStatus(orderNumber: number) {
-    const st = problemImages(orderNumber, "PROBLEM_STATEMENT").length > 0;
-    const rb = problemImages(orderNumber, "PROBLEM_RUBRIC").length > 0;
-    return { st, rb, ok: st && rb };
-  }
-
   async function save(targetStatus: ProblemStatus) {
     setPending(true);
     setError(null);
     setInfo(null);
     setFieldErrors([]);
-    const payload = {
-      title: form.title,
-      subject: form.subject,
-      competitionName: form.title,
-      year: form.year,
-      class: form.class,
-      stage: form.stage,
-      statementMode: "PDF_ONLY",
-      statementDisplayMode: "PDF_FIRST",
-      statementPdfUrl: form.statementPdfUrl || null,
-      rubricPdfUrl: form.rubricPdfUrl || null,
-      leaderboardPdfUrl: form.leaderboardPdfUrl || null,
-      status: isPublished ? ProblemStatus.PUBLISHED : targetStatus,
-      problems: form.problems.map((p, i) => ({
-        orderNumber: p.orderNumber || i + 1,
-        title: p.title || `Problema ${i + 1}`,
-        maxScore: 100,
-      })),
-      attachments: form.attachments.map((a) => ({
-        role: a.role,
-        fileType: a.fileType ?? (a.mimeType?.startsWith("image/") ? "IMAGE" : "PDF"),
-        problemOrderNumber: a.problemOrderNumber ?? null,
-      })),
-    };
-    const res = await fetch(form.id ? `/api/teacher/contest-sets/${form.id}` : "/api/teacher/contest-sets", {
-      method: form.id ? "PATCH" : "POST",
+    const id = await ensureDraft();
+    if (!id) { setPending(false); return; }
+    const payload = buildPayload(targetStatus);
+    const res = await fetch(`/api/teacher/contest-sets/${id}`, {
+      method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
@@ -283,21 +318,19 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
       }
       return;
     }
-    if (!form.id && data?.contestSet?.id) {
-      router.replace(`/teacher/contest-sets/${data.contestSet.id}/edit`);
-      router.refresh();
-      return;
-    }
     setInfo(targetStatus === ProblemStatus.PUBLISHED ? "Concurs publicat." : "Draft salvat.");
     router.refresh();
   }
+
+  const hasAnyRubric = form.problems.some((p) => rubrics[p.orderNumber]);
+  const allRubricsMatch = form.problems.every((p) => rubrics[p.orderNumber]);
 
   return (
     <div className="mx-auto grid max-w-3xl gap-6 pb-10">
       <div className="grid gap-1">
         <h2 className="text-xl font-semibold text-zinc-900">{form.id ? "Editează concurs" : "Concurs nou"}</h2>
         <p className="text-sm text-zinc-500">
-          PDF-ul este cel pe care îl văd elevii. Pozele per problemă sunt folosite doar de AI la corectare.
+          PDF-urile sunt vizibile elevilor. Textele sunt folosite de AI la corectare.
         </p>
       </div>
 
@@ -356,12 +389,28 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
             </select>
           </div>
         </div>
-        <div className="grid gap-1">
-          <label className="text-xs text-zinc-600">Titlu (auto-generat, editabil)</label>
-          <Input
-            value={form.title}
-            onChange={(e) => { setTitleEdited(true); patch("title", e.target.value); }}
-          />
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <div className="grid gap-1">
+            <label className="text-xs text-zinc-600">Titlu (auto-generat, editabil)</label>
+            <Input
+              value={form.title}
+              onChange={(e) => { setTitleEdited(true); patch("title", e.target.value); }}
+            />
+          </div>
+          <div className="grid gap-1">
+            <label className="text-xs text-zinc-600">Nr. probleme</label>
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              className="w-28"
+              value={problemCount}
+              onChange={(e) => {
+                const v = Math.max(1, Math.min(20, Number(e.target.value) || 1));
+                setProblemCount(v);
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -482,141 +531,163 @@ export function ContestSetPublishForm({ initial }: { initial: ContestSetInitial 
         )}
       </div>
 
-      {/* AI images per problem */}
+      {/* Text paste + IRG generation */}
       <div className="grid gap-4 rounded-2xl border border-zinc-200 bg-violet-50 p-4">
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-zinc-900">Poze pentru AI (per problemă)</h3>
+            <h3 className="text-sm font-semibold text-zinc-900">Text pentru AI</h3>
             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-900">Corectare automată</span>
           </div>
           <p className="text-xs text-zinc-600">
-            Pentru fiecare din cele 3 probleme: poze clare cu cerința și cu baremul acelei probleme. AI-ul le folosește la corectare.
+            Deschide fiecare PDF, selectează tot (Ctrl+A), copiază (Ctrl+C) și lipește mai jos. AI-ul segmentează automat problemele și ignoră textul irelevant (regulament, antet etc.).
           </p>
         </div>
 
-        <div className="grid gap-3">
-          {form.problems.map((p) => {
-            const ai = problemAiStatus(p.orderNumber);
-            return (
-              <div key={p.orderNumber} className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-zinc-900">Problema {p.orderNumber}</span>
-                    <span className={`text-xs font-medium ${ai.ok ? "text-emerald-700" : "text-amber-700"}`}>
-                      AI: cerință {ai.st ? "✓" : "✗"} · barem {ai.rb ? "✓" : "✗"}
-                    </span>
-                  </div>
-                  <Input
-                    className="h-8 max-w-[220px] text-xs"
-                    placeholder={`Titlu problemă ${p.orderNumber} (opțional)`}
-                    value={p.title === `Problema ${p.orderNumber}` ? "" : p.title}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        problems: prev.problems.map((x) =>
-                          x.orderNumber === p.orderNumber
-                            ? { ...x, title: e.target.value || `Problema ${p.orderNumber}` }
-                            : x,
-                        ),
-                      }))
-                    }
-                  />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-1">
+            <label className="text-xs font-semibold text-zinc-700">
+              Text cerință (tot PDF-ul subiect)
+              <span className="ml-1 font-normal text-zinc-400">opțional</span>
+            </label>
+            <textarea
+              className="min-h-[160px] w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-800 placeholder:text-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-200"
+              placeholder="Ctrl+A → Ctrl+C din PDF subiect, lipește aici…"
+              value={form.statementText}
+              onChange={(e) => patch("statementText", e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1">
+            <label className="text-xs font-semibold text-zinc-700">
+              Text barem (tot PDF-ul barem)
+              <span className="ml-1 font-normal text-red-500 ml-1">*obligatoriu pt. publicare</span>
+            </label>
+            <textarea
+              className="min-h-[160px] w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-800 placeholder:text-zinc-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-200"
+              placeholder="Ctrl+A → Ctrl+C din PDF barem, lipește aici…"
+              value={form.rubricText}
+              onChange={(e) => patch("rubricText", e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Generate all rubrics */}
+        <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-zinc-800">Rubrici AI</div>
+              {allRubricsMatch ? (
+                <div className="text-xs text-emerald-700">
+                  {problemCount} rubrici generate ·{" "}
+                  {form.problems.reduce((s, p) => {
+                    const r = rubrics[p.orderNumber];
+                    return s + (r?.rubric_breakdown.reduce((x, i) => x + i.allocated_points, 0) ?? 0);
+                  }, 0)} puncte totale · <span className="font-medium">Blocate ✓</span>
                 </div>
-                <div className="grid gap-x-4 gap-y-3 border-t border-zinc-200 pt-3 sm:grid-cols-2">
-                  {(["PROBLEM_STATEMENT", "PROBLEM_RUBRIC"] as const).map((role) => (
-                    <div key={role} className="grid gap-2">
-                      <div className="text-xs font-semibold text-zinc-700">
-                        {role === "PROBLEM_STATEMENT" ? "Poze cerință" : "Poze barem"}
+              ) : hasAnyRubric ? (
+                <div className="text-xs text-amber-700">
+                  Rubrici parțiale — {form.problems.filter((p) => rubrics[p.orderNumber]).length}/{problemCount} generate
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-500">
+                  Nicio rubrică — apasă „Generează" după ce ai adăugat textul baremului.
+                </div>
+              )}
+              {generatedCount !== null && generatedCount !== problemCount && (
+                <div className="mt-1 text-xs text-red-700 font-medium">
+                  AI a generat {generatedCount} rubrici, dar ai setat {problemCount} probleme — verifică numărul sau regenerează.
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={generating || !form.rubricText?.trim()}
+                onClick={() => void generateAllRubrics()}
+                className="text-xs flex items-center gap-1.5"
+              >
+                {generating && (
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                )}
+                {generating
+                  ? "Se generează…"
+                  : hasAnyRubric
+                    ? "Regenerează toate"
+                    : "Generează"}
+              </Button>
+              {hasAnyRubric && form.id ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-xs text-red-600"
+                  onClick={() => void clearAllRubrics()}
+                >
+                  Șterge toate
+                </Button>
+              ) : null}
+            </div>
+            {generating && (
+              <p className="text-xs text-zinc-500 mt-1 animate-pulse">
+                Detectez structura baremului și generez rubricile… Poate dura 30–60 de secunde.
+              </p>
+            )}
+          </div>
+
+          {/* Per-problem rubric preview */}
+          {form.problems.map((p) => {
+            const rubric = rubrics[p.orderNumber];
+            if (!rubric) return null;
+            return (
+              <div key={p.orderNumber} className="grid gap-1 border-t border-zinc-100 pt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-zinc-800">
+                    Problema {p.orderNumber} — {rubric.rubric_breakdown.length} criterii · {rubric.rubric_breakdown.reduce((s, r) => s + r.allocated_points, 0)}p
+                  </span>
+                </div>
+                <div className="grid gap-0.5">
+                  {rubric.rubric_breakdown.map((item, idx) => (
+                    <div key={idx} className="flex items-start justify-between gap-2 py-1 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium text-zinc-900">{item.milestone_name}</span>
+                        <span className="text-zinc-400 ml-2">{item.grading_criteria}</span>
                       </div>
-                      <label className={`flex cursor-pointer items-center gap-1.5 self-start rounded-md border border-dashed px-2.5 py-1.5 text-xs transition ${uploading ? "cursor-not-allowed border-zinc-200 text-zinc-400 opacity-60" : "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:bg-zinc-100"}`}>
-                        <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                        </svg>
-                        <span>Adaugă poze</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          disabled={uploading}
-                          className="sr-only"
-                          onChange={(e) => {
-                            Array.from(e.target.files ?? []).forEach((f) =>
-                              void upload(role, f, { problemOrderNumber: p.orderNumber }),
-                            );
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
-                      <AttachmentList items={problemImages(p.orderNumber, role)} onRemove={removeAttachment} />
+                      <div className="shrink-0 font-semibold text-emerald-700 tabular-nums">{item.allocated_points}p</div>
                     </div>
                   ))}
-                </div>
-
-                {/* Rubric generation */}
-                <div className="grid gap-2 border-t border-zinc-200 pt-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="text-xs font-semibold text-zinc-800">
-                        Rubrica AI — Problema {p.orderNumber}
-                      </div>
-                      {rubrics[p.orderNumber] ? (
-                        <div className="text-xs text-emerald-700">
-                          {rubrics[p.orderNumber]!.rubric_breakdown.length} criterii ·{" "}
-                          {rubrics[p.orderNumber]!.rubric_breakdown.reduce((s, r) => s + r.allocated_points, 0)} puncte totale
-                          {" "}· <span className="font-medium">Blocată ✓</span>
-                        </div>
-                      ) : (
-                        <div className="text-xs text-zinc-500">Nicio rubrică generată — corectorul va genera una la fiecare trimitere.</div>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={rubricsLoading[p.orderNumber] || uploading || !ai.rb}
-                        onClick={() => void generateRubric(p.orderNumber)}
-                        className="text-xs"
-                      >
-                        {rubricsLoading[p.orderNumber]
-                          ? "Se generează…"
-                          : rubrics[p.orderNumber]
-                            ? "Regenerează"
-                            : "Generează rubrici"}
-                      </Button>
-                      {rubrics[p.orderNumber] && form.id ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="text-xs text-red-600"
-                          onClick={() => void clearRubric(p.orderNumber)}
-                        >
-                          Șterge
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                  {!ai.rb && (
-                    <p className="text-xs text-amber-700">Adaugă mai întâi pozele baremului pentru a putea genera rubrica.</p>
-                  )}
-                  {rubrics[p.orderNumber] ? (
-                    <div className="grid gap-1">
-                      {rubrics[p.orderNumber]!.rubric_breakdown.map((item, idx) => (
-                        <div key={idx} className="flex items-start justify-between gap-2 border-b border-zinc-100 py-1.5 text-xs last:border-0">
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-zinc-900">{item.milestone_name}</div>
-                            <div className="text-zinc-500 mt-0.5">{item.grading_criteria}</div>
-                          </div>
-                          <div className="shrink-0 font-semibold text-emerald-700 tabular-nums">{item.allocated_points}p</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
               </div>
             );
           })}
+        </div>
+
+        {/* Per-problem titles (optional) */}
+        <div className="grid gap-2">
+          <div className="text-xs font-semibold text-zinc-700">Titluri probleme <span className="font-normal text-zinc-400">(opțional)</span></div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {form.problems.map((p) => (
+              <Input
+                key={p.orderNumber}
+                className="h-8 text-xs"
+                placeholder={`Problema ${p.orderNumber}`}
+                value={p.title === `Problema ${p.orderNumber}` ? "" : p.title}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    problems: prev.problems.map((x) =>
+                      x.orderNumber === p.orderNumber
+                        ? { ...x, title: e.target.value || `Problema ${p.orderNumber}` }
+                        : x,
+                    ),
+                  }))
+                }
+              />
+            ))}
+          </div>
         </div>
       </div>
 

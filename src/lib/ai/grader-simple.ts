@@ -1,8 +1,27 @@
-import OpenAI from "openai";
-import { zodResponseFormat } from "openai/helpers/zod";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { z } from "zod";
-import { getAiGradingModel, getOpenAiApiKey, modelSupportsTemperature } from "@/lib/ai/config";
+import { getGeminiApiKey, getGeminiRubricModel } from "@/lib/ai/config";
 import { stripHtmlForPrompt } from "@/lib/html/strip";
+
+// ─── Retry helper for transient Gemini errors (503, 429) ─────────────────────
+
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isTransient = msg.includes("503") || msg.includes("429") || msg.includes("Service Unavailable") || msg.includes("Too Many Requests");
+      if (!isTransient || attempt === maxAttempts) throw err;
+      const delayMs = 2000 * attempt; // 2s, 4s, 6s
+      console.warn(`[gemini] transient error (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs}ms...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
 
 // ─── Step 1 schema: MasterRubric ──────────────────────────────────────────────
 
@@ -108,110 +127,172 @@ export function validateSimpleResult(result: SimpleGraderResult): SimplePipeline
 
 // ─── Client singleton ─────────────────────────────────────────────────────────
 
-let _client: OpenAI | null = null;
-function getClient() {
-  if (!_client) _client = new OpenAI({ apiKey: getOpenAiApiKey() });
-  return _client;
+let _geminiClient: GoogleGenerativeAI | null = null;
+function getGeminiClient() {
+  if (!_geminiClient) _geminiClient = new GoogleGenerativeAI(getGeminiApiKey());
+  return _geminiClient;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64");
 }
 
 function toDataUrl(bytes: Uint8Array, mimeType: string): string {
-  return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
+  return `data:${mimeType};base64,${toBase64(bytes)}`;
 }
 
-// ─── Step 1: Generate master rubric from problem + barem ─────────────────────
+// ─── Step 1: Generate master rubric from problem + barem (Gemini) ─────────────
 
 export async function generateMasterRubric(args: {
   statement: string;
   rubricText: string;
   statementImages: Array<{ mimeType: string; bytes: Uint8Array }>;
   rubricImages: Array<{ mimeType: string; bytes: Uint8Array }>;
+  statementPdfBytes?: Uint8Array;
+  rubricPdfBytes?: Uint8Array;
+  rubricPageHint?: string;
 }): Promise<MasterRubric> {
-  const client = getClient();
-  const model = getAiGradingModel();
+  const gemini = getGeminiClient();
+  const modelName = getGeminiRubricModel();
+
+  const model = gemini.getGenerativeModel({
+    model: modelName,
+    systemInstruction:
+      "Ești compilatorul principal al schemelor de notare pentru concursuri de matematică, fizică și chimie. " +
+      "Returnezi EXCLUSIV JSON valid conform schemei cerute.",
+    generationConfig: {
+      thinkingConfig: { thinkingBudget: 0 },
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          problem_summary: { type: SchemaType.STRING },
+          rubric_breakdown: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                milestone_name: { type: SchemaType.STRING },
+                allocated_points: { type: SchemaType.NUMBER },
+                grading_criteria: { type: SchemaType.STRING },
+              },
+              required: ["milestone_name", "allocated_points", "grading_criteria"],
+            },
+          },
+        },
+        required: ["problem_summary", "rubric_breakdown"],
+      },
+    },
+  });
 
   const rubricPrompt =
     "Analizează enunțul problemei și soluția oficială (baremul). " +
-    "Extrage punctele numerice EXACT din marcajele baremului din imagine. " +
-    "IMPORTANT: Creează EXACT câte criterii există în barem — câte secțiuni sau subpuncte are baremul, atâtea criterii. " +
-    "NU subdiviza niciun criteriu în sub-pași. NU combina criterii separate. " +
-    "Copiază etichetele secțiunilor exact din barem (ex. 'II.A – Reprezentarea forțelor', 'II.B – Calculul forței'). " +
-    "Un criteriu = o secțiune din barem, cu punctajul ei total.";
+    "Extrage punctele numerice EXACT din marcajele baremului. " +
+    "REGULA PRINCIPALĂ: Orice linie sau bloc din barem care are un punctaj explicit tipărit lângă el (ex. '1p', '2p', '……1p') " +
+    "reprezintă un criteriu SEPARAT — indiferent dacă are sau nu o etichetă de secțiune (A), B), etc.). " +
+    "NU combina niciodată două linii cu punctaje diferite într-un singur criteriu. " +
+    "NU subdiviza o linie cu un singur punctaj în sub-pași. " +
+    "Numărul total de criterii = numărul exact de linii/blocuri cu punctaje din barem. " +
+    "Copiază etichetele secțiunilor exact din barem (ex. 'A – Reprezentarea forțelor', 'B – Calculul forței'). " +
+    "Pentru liniile fără etichetă de secțiune, folosește conținutul matematic ca etichetă (ex. 'Ecuația de echilibru').";
 
-  type ContentItem =
-    | { type: "text"; text: string }
-    | { type: "image_url"; image_url: { url: string; detail: "high" } };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parts: any[] = [{ text: rubricPrompt }];
 
-  const contentItems: ContentItem[] = [{ type: "text", text: rubricPrompt }];
-
-  contentItems.push({ type: "text", text: "--- ENUNȚUL PROBLEMEI ---" });
-  if (args.statementImages.length > 0) {
+  parts.push({ text: "--- ENUNȚUL PROBLEMEI ---" });
+  if (args.statement) parts.push({ text: args.statement });
+  if (args.statementPdfBytes) {
+    parts.push({ inlineData: { mimeType: "application/pdf", data: toBase64(args.statementPdfBytes) } });
+  } else if (args.statementImages.length > 0) {
     for (const img of args.statementImages) {
-      contentItems.push({
-        type: "image_url",
-        image_url: { url: toDataUrl(img.bytes, img.mimeType), detail: "high" },
-      });
+      parts.push({ inlineData: { mimeType: img.mimeType, data: toBase64(img.bytes) } });
     }
-  } else {
-    contentItems.push({ type: "text", text: args.statement || "(indisponibil)" });
+  } else if (!args.statement) {
+    parts.push({ text: "(indisponibil)" });
   }
 
-  contentItems.push({ type: "text", text: "--- SOLUȚIA OFICIALĂ (BAREM) ---" });
-  if (args.rubricImages.length > 0) {
+  parts.push({ text: "--- SOLUȚIA OFICIALĂ (BAREM) ---" });
+  if (args.rubricPageHint) parts.push({ text: `📌 ${args.rubricPageHint}` });
+  if (args.rubricText) parts.push({ text: args.rubricText });
+  if (args.rubricPdfBytes) {
+    parts.push({ inlineData: { mimeType: "application/pdf", data: toBase64(args.rubricPdfBytes) } });
+  } else if (args.rubricImages.length > 0) {
     for (const img of args.rubricImages) {
-      contentItems.push({
-        type: "image_url",
-        image_url: { url: toDataUrl(img.bytes, img.mimeType), detail: "high" },
-      });
+      parts.push({ inlineData: { mimeType: img.mimeType, data: toBase64(img.bytes) } });
     }
-  } else {
-    contentItems.push({ type: "text", text: args.rubricText || "(indisponibil)" });
+  } else if (!args.rubricText) {
+    parts.push({ text: "(indisponibil)" });
   }
 
-  const response = await client.chat.completions.parse({
-    model,
-    ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
-    messages: [
-      {
-        role: "system",
-        content:
-          "Ești compilatorul principal al schemelor de notare pentru concursuri de matematică, fizică și chimie. Returnezi EXCLUSIV JSON valid.",
-      },
-      {
-        role: "user",
-        content: contentItems,
-      },
-    ],
-    response_format: zodResponseFormat(MasterRubricSchema, "master_rubric"),
-  });
-
-  const parsed = response.choices[0].message.parsed;
-  if (!parsed) throw new Error("[generateMasterRubric] Model returned no parsed result");
+  const result = await withRetry(() => model.generateContent(parts));
+  const text = result.response.text();
+  const parsed = MasterRubricSchema.parse(JSON.parse(text));
   return parsed;
 }
 
-// ─── Step 2: Grade student submission against frozen rubric ───────────────────
+// ─── Step 2: Grade student submission against frozen rubric (Gemini) ──────────
 
 async function gradeAgainstFrozenRubric(args: {
   studentImages: Array<{ bytes: Uint8Array; mimeType: string }>;
   frozenRubric: MasterRubric;
   ocrText?: string | null;
 }): Promise<OlympiadGrading> {
-  const client = getClient();
-  const model = getAiGradingModel();
+  const gemini = getGeminiClient();
+  const modelName = getGeminiRubricModel();
+
+  const model = gemini.getGenerativeModel({
+    model: modelName,
+    systemInstruction:
+      "Ești un corector precis și corect pentru concursuri de matematică, fizică și chimie. " +
+      "Folosești rubrica JSON furnizată pentru a corecta elevul pas cu pas. Returnezi EXCLUSIV JSON valid.",
+    generationConfig: {
+      thinkingConfig: { thinkingBudget: 0 },
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          readability: { type: SchemaType.STRING, enum: ["readable", "rejected"] },
+          rejection_reason: { type: SchemaType.STRING, nullable: true },
+          total_score: { type: SchemaType.NUMBER, nullable: true },
+          breakdown: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                milestone_name: { type: SchemaType.STRING },
+                points_earned: { type: SchemaType.NUMBER },
+                points_possible: { type: SchemaType.NUMBER },
+                justification: { type: SchemaType.STRING },
+              },
+              required: ["milestone_name", "points_earned", "points_possible", "justification"],
+            },
+          },
+          visual_feedback: { type: SchemaType.STRING },
+          reasoning_feedback: { type: SchemaType.STRING },
+        },
+        required: ["readability", "rejection_reason", "total_score", "breakdown", "visual_feedback", "reasoning_feedback"],
+      },
+    },
+  });
 
   const evaluationPrompt = [
-    "Ești un corector de concurs. Evaluează lucrarea elevului strict conform Rubricii Fixe furnizate.",
+    "Ești un corector de concurs. Evaluează lucrarea elevului conform Rubricii Fixe furnizate, cu înțelegere față de greșelile minore.",
     `Lucrarea elevului constă din ${args.studentImages.length} imagine(i). Analizează-le pe TOATE pentru a găsi soluția completă.`,
     "",
-    "Reguli:",
-    "1. Nu aplica deduceri micro pentru pași triviali omisi sau stilul scrisului dacă raționamentul este corect.",
-    "2. Dacă o parte specifică din rubrică nu a fost abordată în lucrarea elevului, acordă 0 puncte pentru acele elemente.",
-    "3. Aplică regulile de propagare a erorilor corect. Nu penaliza pașii următori dacă un calcul anterior a fost greșit, dar logica a rămas corectă.",
-    "4. Imaginile elevului sunt SINGURA sursă de dovezi. Valorile din rubrică NU constituie dovezi ale muncii elevului.",
+    `SUBIECTUL PROBLEMEI DE CORECTAT: ${args.frozenRubric.problem_summary}`,
+    "",
+    "VERIFICARE OBLIGATORIE ÎNAINTE DE ORICE ALTCEVA:",
+    "Verifică dacă lucrarea elevului tratează ACELAȘI subiect cu problema de mai sus.",
+    "Dacă elevul a trimis o rezolvare pentru o altă problemă, un barem, un document pentru un subiect complet diferit sau orice conținut care nu are legătură cu subiectul de corectat — setează readability='rejected' cu rejection_reason='Lucrarea nu corespunde problemei de corectat.' și acordă 0 la toate criteriile.",
+    "",
+    "Reguli (aplică DOAR dacă lucrarea corespunde problemei):",
+    "1. Fii înțelegător cu greșelile de calcul minore, notații imperfecte sau pași exprimați ușor diferit față de barem — dacă raționamentul și ideea sunt corecte, acordă punctele.",
+    "2. Dacă elevul a demonstrat că înțelege conceptul dar a făcut o greșeală de aritmetică, nu penaliza toți pașii următori — aplică propagarea erorilor.",
+    "3. Dacă un pas e parțial corect (ideea bună, execuție incompletă), acordă punctaj parțial proporțional.",
+    "4. Dacă un subpunct nu apare deloc în lucrare — nu a fost scris nimic relevant — acordă 0. Nu inventa muncă inexistentă.",
     "5. Dacă imaginile sunt necitibile sau goale, setează readability='rejected' și explică în rejection_reason.",
     "6. Toate textele trebuie scrise în ROMÂNĂ.",
     "7. Criteriul 'Oficiu' sau orice criteriu administrativ similar se acordă AUTOMAT în totalitate dacă elevul a depus orice lucrare scrisă.",
-    "8. NU acorda puncte parțiale dacă nu există dovezi CLARE și VIZIBILE în imagini pentru acel subpunct. Dacă nu există nimic scris, acordă 0.",
     "",
     `RUBRICA FIXĂ DE URMAT EXCLUSIV:\n${JSON.stringify(args.frozenRubric, null, 2)}`,
     "",
@@ -220,34 +301,14 @@ async function gradeAgainstFrozenRubric(args: {
     .filter(Boolean)
     .join("\n");
 
-  const response = await client.chat.completions.parse({
-    model,
-    ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
-    messages: [
-      {
-        role: "system",
-        content:
-          "Ești un corector precis și corect pentru concursuri de matematică, fizică și chimie. Folosești rubrica JSON furnizată pentru a corecta elevul pas cu pas. Returnezi EXCLUSIV JSON valid.",
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: evaluationPrompt },
-          ...args.studentImages.map((img, idx) => ({
-            type: "image_url" as const,
-            image_url: {
-              url: toDataUrl(img.bytes, img.mimeType),
-              detail: "high" as const,
-            },
-          })),
-        ],
-      },
-    ],
-    response_format: zodResponseFormat(OlympiadGradingSchema, "olympiad_grading"),
-  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parts: any[] = [{ text: evaluationPrompt }];
+  for (const img of args.studentImages) {
+    parts.push({ inlineData: { mimeType: img.mimeType, data: toBase64(img.bytes) } });
+  }
 
-  const parsed = response.choices[0].message.parsed;
-  if (!parsed) throw new Error("[gradeAgainstFrozenRubric] Model returned no parsed result");
+  const result = await withRetry(() => model.generateContent(parts));
+  const parsed = OlympiadGradingSchema.parse(JSON.parse(result.response.text()));
   return parsed;
 }
 
@@ -281,44 +342,29 @@ export async function gradeSimpleWithOpenAi(args: {
     );
   }
 
-  // Step 2 — 4 apeluri paralele, alegem al doilea cel mai mic
-  console.info("[gradeSimple] Step 2: grading x4 in parallel...");
+  // Step 2 — 2 apeluri paralele, media per subpunct
+  console.info("[gradeSimple] Step 2: grading x2 in parallel...");
   const gradingArgs = {
     studentImages: args.studentImages,
     frozenRubric: masterRubric,
     ocrText: args.ocrText,
   };
-  const [r1, r2, r3, r4] = await Promise.all([
-    gradeAgainstFrozenRubric(gradingArgs),
-    gradeAgainstFrozenRubric(gradingArgs),
+  const [r1, r2] = await Promise.all([
     gradeAgainstFrozenRubric(gradingArgs),
     gradeAgainstFrozenRubric(gradingArgs),
   ]);
 
-  const allFour = [r1, r2, r3, r4];
-  const readable = allFour.filter((g) => g.readability === "readable" && g.total_score != null);
+  const allTwo = [r1, r2];
+  const readable = allTwo.filter((g) => g.readability === "readable");
   console.info(
-    `[gradeSimple] Scores: ${allFour.map((g) => g.total_score ?? "rejected").join(", ")} — readable=${readable.length}/4`,
+    `[gradeSimple] Scores: ${allTwo.map((g) => g.total_score ?? "rejected").join(", ")} — readable=${readable.length}/2`,
   );
 
-  // Sortăm crescător și luăm al doilea cel mai mic (index 1)
-  let grading: OlympiadGrading;
-  if (readable.length === 0) {
-    grading = r1;
-  } else if (readable.length === 1) {
-    grading = readable[0]!;
-  } else {
-    const sorted = [...readable].sort((a, b) => (a.total_score ?? 0) - (b.total_score ?? 0));
-    grading = sorted[1]!; // al doilea cel mai mic
-  }
-
-  console.info(`[gradeSimple] Selected: readability=${grading.readability} total_score=${grading.total_score}`);
-
   // ── Rejected image ────────────────────────────────────────────────────────
-  if (grading.readability === "rejected") {
+  if (readable.length === 0) {
     return {
       readability: "rejected",
-      rejection_reason: grading.rejection_reason,
+      rejection_reason: r1.rejection_reason,
       total_barem: null,
       puncte_obtinute: null,
       criterii: [],
@@ -331,17 +377,23 @@ export async function gradeSimpleWithOpenAi(args: {
   // ── Map to SimpleGraderResult ─────────────────────────────────────────────
   const totalBarem = masterRubric.rubric_breakdown.reduce((s, r) => s + r.allocated_points, 0);
 
-  // Anchor each breakdown item to the stored rubric by position:
-  // - milestone_name and allocated_points come from masterRubric (stable, user-approved)
-  // - points_earned and justification come from AI Step 2
+  // Anchor per subpunct: media points_earned din run-urile readable, clamped la allocated_points
   const anchored = masterRubric.rubric_breakdown.map((rubricItem, idx) => {
-    const ai = grading.breakdown[idx];
-    const earned = ai ? Math.min(Math.max(0, ai.points_earned), rubricItem.allocated_points) : 0;
+    let earned = 0;
+    let justification = "";
+    for (const g of readable) {
+      const ai = g.breakdown[idx];
+      const clamped = ai ? Math.min(Math.max(0, ai.points_earned), rubricItem.allocated_points) : 0;
+      if (clamped >= earned) {
+        earned = clamped;
+        justification = ai?.justification ?? justification;
+      }
+    }
     return {
       milestone_name: rubricItem.milestone_name,
       points_possible: rubricItem.allocated_points,
       points_earned: earned,
-      justification: ai?.justification ?? "",
+      justification,
     };
   });
 
@@ -369,10 +421,10 @@ export async function gradeSimpleWithOpenAi(args: {
     ce_lipseste_sau_e_gresit: b.points_earned < b.points_possible ? b.justification : "",
   }));
 
-  const feedbackParts = [
-    grading.visual_feedback ? `Reprezentări vizuale: ${grading.visual_feedback}` : "",
-    grading.reasoning_feedback ? `Raționament: ${grading.reasoning_feedback}` : "",
-  ].filter(Boolean);
+  const feedbackParts = readable.flatMap((g) => [
+    g.visual_feedback ? `Reprezentări vizuale: ${g.visual_feedback}` : "",
+    g.reasoning_feedback ? `Raționament: ${g.reasoning_feedback}` : "",
+  ]).filter((v, i, arr) => v && arr.indexOf(v) === i);
 
   return {
     readability: "readable",
@@ -386,6 +438,107 @@ export async function gradeSimpleWithOpenAi(args: {
   };
 }
 
+// ─── Subject page range detector ─────────────────────────────────────────────
+
+const PageRangesSchema = z.object({
+  subjects: z.array(z.object({
+    number: z.number().int(),
+    startPage: z.number().int(),
+    endPage: z.number().int(),
+  })),
+});
+
+export async function detectSubjectPageRanges(args: {
+  rubricPdfBytes: Uint8Array;
+  totalProblems: number;
+}): Promise<Record<number, { startPage: number; endPage: number }>> {
+  const gemini = getGeminiClient();
+  const modelName = getGeminiRubricModel();
+
+  const model = gemini.getGenerativeModel({
+    model: modelName,
+    generationConfig: {
+      thinkingConfig: { thinkingBudget: 0 },
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          subjects: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                number: { type: SchemaType.INTEGER },
+                startPage: { type: SchemaType.INTEGER },
+                endPage: { type: SchemaType.INTEGER },
+              },
+              required: ["number", "startPage", "endPage"],
+            },
+          },
+        },
+        required: ["subjects"],
+      },
+    },
+  });
+
+  const prompt =
+    `Acest PDF conține baremul unui concurs cu exact ${args.totalProblems} subiecte/probleme (numerotate Subiectul I, Subiectul II etc. sau Problema 1, 2 etc.). ` +
+    `Identifică pe ce pagini (1-indexed) începe și se termină fiecare subiect. ` +
+    `Un subiect poate să înceapă și să se termine pe aceeași pagină, sau să se întindă pe mai multe pagini. ` +
+    `Returnează exact ${args.totalProblems} intrări, una pentru fiecare subiect.`;
+
+  try {
+    const result = await withRetry(() => model.generateContent([
+      { text: prompt },
+      { inlineData: { mimeType: "application/pdf", data: toBase64(args.rubricPdfBytes) } },
+    ]));
+    const parsed = PageRangesSchema.safeParse(JSON.parse(result.response.text()));
+    if (!parsed.success) return {};
+    return Object.fromEntries(parsed.data.subjects.map((s) => [s.number, { startPage: s.startPage, endPage: s.endPage }]));
+  } catch (err) {
+    console.warn("[detectSubjectPageRanges] failed, continuing without page hints:", err instanceof Error ? err.message : err);
+    return {};
+  }
+}
+
+// ─── Unrelated content detector ──────────────────────────────────────────────
+
+const UnrelatedDetectSchema = z.object({
+  is_unrelated: z.boolean(),
+});
+
+export async function detectIsUnrelated(args: {
+  bytes: Uint8Array;
+  mimeType: string;
+}): Promise<boolean> {
+  const gemini = getGeminiClient();
+  const modelName = getGeminiRubricModel();
+  try {
+    const model = gemini.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        thinkingConfig: { thinkingBudget: 0 },
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: { is_unrelated: { type: SchemaType.BOOLEAN } },
+          required: ["is_unrelated"],
+        },
+      },
+    });
+    const result = await withRetry(() => model.generateContent([
+      {
+        text: "Analizează imaginea. Răspunde cu is_unrelated: true dacă imaginea NU conține nicio rezolvare matematică, fizică sau chimie (de exemplu: este o fotografie aleatorie, un selfie, o imagine fără conținut academic, un desen fără legătură, text complet irelevant). Răspunde cu is_unrelated: false dacă imaginea conține orice fel de calcule, scheme, ecuații, demonstrații sau scriere academică — chiar și parțiale sau greșite.",
+      },
+      { inlineData: { mimeType: args.mimeType, data: toBase64(args.bytes) } },
+    ]));
+    const parsed = UnrelatedDetectSchema.safeParse(JSON.parse(result.response.text()));
+    return parsed.success ? parsed.data.is_unrelated : false;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Barem detector ───────────────────────────────────────────────────────────
 
 const BaremDetectSchema = z.object({
@@ -396,30 +549,28 @@ export async function detectIsBaremImage(args: {
   bytes: Uint8Array;
   mimeType: string;
 }): Promise<boolean> {
-  const client = getClient();
-  const model = getAiGradingModel();
+  const gemini = getGeminiClient();
+  const modelName = getGeminiRubricModel();
   try {
-    const resp = await client.chat.completions.parse({
-      model,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Analizează imaginea. Răspunde cu is_barem: true dacă imaginea conține un barem oficial, schemă de notare, sau soluție model (cu punctaje explicite pe criterii), specific unui concurs sau olimpiadă. Răspunde cu is_barem: false dacă e o rezolvare scrisă de mână de un elev, chiar dacă conține calcule corecte.`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: toDataUrl(args.bytes, args.mimeType), detail: "low" },
-            },
-          ],
+    const model = gemini.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: { is_barem: { type: SchemaType.BOOLEAN } },
+          required: ["is_barem"],
         },
-      ],
-      response_format: zodResponseFormat(BaremDetectSchema, "barem_detect"),
-      ...(modelSupportsTemperature(model) ? { temperature: 0 } : {}),
+      },
     });
-    return resp.choices[0]?.message?.parsed?.is_barem ?? false;
+    const result = await withRetry(() => model.generateContent([
+      {
+        text: "Analizează imaginea. Răspunde cu is_barem: true dacă imaginea conține un barem oficial, schemă de notare, sau soluție model (cu punctaje explicite pe criterii), specific unui concurs sau olimpiadă. Răspunde cu is_barem: false dacă e o rezolvare scrisă de mână de un elev, chiar dacă conține calcule corecte.",
+      },
+      { inlineData: { mimeType: args.mimeType, data: toBase64(args.bytes) } },
+    ]));
+    const parsed = BaremDetectSchema.safeParse(JSON.parse(result.response.text()));
+    return parsed.success ? parsed.data.is_barem : false;
   } catch {
     return false;
   }
