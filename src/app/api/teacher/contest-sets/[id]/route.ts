@@ -79,9 +79,10 @@ export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> 
   if (!teacher) return jsonError(403, "Teachers only");
   const { id } = await ctx.params;
 
+  const isPip = teacher.username === "pip";
   const existing = await prisma.contestSet.findFirst({
-    where: { id, createdById: teacher.id },
-    select: { id: true, status: true },
+    where: { id, ...(isPip ? {} : { createdById: teacher.id }) },
+    select: { id: true },
   });
   if (!existing) return jsonError(404, "Contest set not found");
 

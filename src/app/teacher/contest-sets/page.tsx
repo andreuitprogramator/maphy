@@ -5,6 +5,7 @@ import { requireTeacher } from "@/lib/auth/require-teacher";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
+import { ContestSetDeleteButton } from "@/components/teacher/contest-set-delete-button";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,9 @@ export default async function TeacherContestSetsListPage() {
   const teacher = await requireTeacher();
   if (!teacher) redirect("/");
 
+  const isPip = teacher.username === "pip";
   const sets = await prisma.contestSet.findMany({
-    where: { createdById: teacher.id },
+    where: isPip ? {} : { createdById: teacher.id },
     orderBy: [{ updatedAt: "desc" }],
     include: { _count: { select: { problems: true } } },
   });
@@ -48,7 +50,10 @@ export default async function TeacherContestSetsListPage() {
                   {s.subject === "MATH" ? "Matematică" : "Fizică"} - {s.competitionName} - {s.year} - Clasa {s.class} - {s.stage.toLowerCase()} - {s._count.problems} probleme
                 </div>
               </div>
-              <Link href={`/teacher/contest-sets/${s.id}/edit`} className="text-xs font-medium text-zinc-700 hover:underline">Editează</Link>
+              <div className="flex items-center gap-3">
+                <Link href={`/teacher/contest-sets/${s.id}/edit`} className="text-xs font-medium text-zinc-700 hover:underline">Editează</Link>
+                {isPip && <ContestSetDeleteButton id={s.id} title={s.title} />}
+              </div>
             </div>
           ))}
         </CardContent>
